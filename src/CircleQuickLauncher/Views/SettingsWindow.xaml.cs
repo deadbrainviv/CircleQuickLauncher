@@ -15,6 +15,18 @@ public sealed partial class SettingsWindow : Window
     public SettingsWindow()
     {
         InitializeComponent();
+
+        // Always open centered on the primary monitor so it is visible regardless of
+        // where the launcher anchor lives.
+        try
+        {
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 860));
+            WindowService.CenterOnScreen(this, 720, 860);
+        }
+        catch (Exception)
+        {
+        }
+
         LoadFromState();
 
         _state.SettingsChanged += OnSettingsChanged;
@@ -40,6 +52,7 @@ public sealed partial class SettingsWindow : Window
         MaxItemsSlider.Value = s.MaxItems;
         AnchorSizeSlider.Value = s.MainCircleSize;
         ChildSizeSlider.Value = s.ChildCircleSize;
+        IconSizeSlider.Value = s.IconSize;
         CollapseDelaySlider.Value = s.CollapseDelayMs;
         DataPathText.Text = AppState.AppDataDirectory;
 
@@ -136,6 +149,16 @@ public sealed partial class SettingsWindow : Window
         }
 
         _state.UpdateSettings(s => s.ChildCircleSize = e.NewValue);
+    }
+
+    private void IconSizeSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _state.UpdateSettings(s => s.IconSize = e.NewValue);
     }
 
     private void CollapseDelaySlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

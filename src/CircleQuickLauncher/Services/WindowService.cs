@@ -41,16 +41,15 @@ public static class WindowService
         style |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_NOREDIRECTIONBITMAP;
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(style));
 
-        // Fully transparent composition backdrop so only XAML content paints.
+        // Use the WinUI acrylic backdrop so the desktop shows through (frosted/translucent),
+        // which is the reliable way to get a non-opaque overlay in WinUI 3.
         try
         {
-            var brushHolder = WinRT.CastExtensions.As<Microsoft.UI.Composition.ICompositionSupportsSystemBackdrop>(window);
-            var compositor = new Windows.UI.Composition.Compositor();
-            brushHolder.SystemBackdrop = compositor.CreateColorBrush(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+            window.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
         }
         catch (Exception)
         {
-            // Backdrop interop is optional; the DWM frame extension below is the primary path.
+            // Backdrop is optional; the DWM frame extension below is the fallback path.
         }
 
         ApplyTransparentFrame(hwnd);
@@ -58,6 +57,7 @@ public static class WindowService
 
     /// <summary>
     /// Turns the window frame into a fully transparent DWM frame so only XAML content draws.
+    /// Combined with the acrylic SystemBackdrop this yields a translucent overlay.
     /// Re-applied after activation because WinUI may reset styles during window setup.
     /// </summary>
     public static void ApplyTransparentFrame(IntPtr hwnd)
@@ -74,6 +74,73 @@ public static class WindowService
             cyBottomHeight = -1,
         };
         NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
+    }
+
+    /// <summary>
+    /// Applies the DWM accent policy that renders the window background fully transparent
+    /// while letting XAML content (the circles) draw on top. This is the modern Windows 10/11
+    /// mechanism used by the Start menu and other overlay surfaces.
+    /// </summary>
+    public static void ApplyTransparentAccent(IntPtr hwnd)
+    {
+        try
+        {
+            var accent = new NativeMethods.ACCENT_POLICY
+            {
+                AccentState = (int)NativeMethods.ACCENT_STATE.ACCENT_ENABLE_TRANSPARENTGRADIENT,
+                AccentFlags = 2,
+                GradientColor = 0x00000000, // fully transparent (AABBGGRR)
+            };
+
+            int size = Marshal.SizeOf<NativeMethods.ACCENT_POLICY>();
+            var data = new NativeMethods.WINDOWCOMPOSITIONATTRIBDATA
+            {
+                Attrib = NativeMethods.WCA_ACCENT_POLICY,
+                pvData = Marshal.AllocHGlobal(size),
+                cbData = size,
+            };
+
+            try
+            {
+                Marshal.StructureToPtr(accent, data.pvData, false);
+                NativeMethods.SetWindowCompositionAttribute(hwnd, ref data);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(data.pvData);
+            }
+        }
+        catch (Exception)
+        {
+            // Accent policy is best-effort; the DWM frame extension is the primary path.
+        }
+    }
+
+    /// <summary>Centers a window on the primary monitor's work area and resizes it.</summary>
+    public static void CenterOnScreen(Window window, int widthPx, int heightPx)
+    {
+        AppWindow appWindow = GetAppWindow(window);
+        appWindow.Resize(new SizeInt32(widthPx, heightPx));
+
+        DisplayArea displayArea = DisplayArea.GetFromWindowId(appWindow.Id, DisplayAreaFallback.Primary);
+        RectInt32 work = displayArea.WorkArea;
+        int x = work.X + ((work.Width - widthPx) / 2);
+        int y = work.Y + ((work.Height - heightPx) / 2);
+        appWindow.Move(new PointInt32(x, y));
+    }
+
+    /// <summary>Gets the primary monitor work area in physical pixels.</summary>
+    public static RectInt32 GetPrimaryWorkAreaPx()
+    {
+        // Resolve the primary monitor via a point at the virtual-screen origin.
+        IntPtr monitor = NativeMethods.MonitorFromPoint(new NativeMethods.POINT { X = 0, Y = 0 }, NativeMethods.MONITOR_DEFAULTTOPRIMARY);
+        var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        NativeMethods.GetMonitorInfo(monitor, ref info);
+        return new RectInt32(
+            info.rcWork.Left,
+            info.rcWork.Top,
+            info.rcWork.Right - info.rcWork.Left,
+            info.rcWork.Bottom - info.rcWork.Top);
     }
 
     public static void ReassertTopmost(IntPtr hwnd)

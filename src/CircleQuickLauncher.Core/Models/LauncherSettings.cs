@@ -26,6 +26,9 @@ public sealed class LauncherSettings
     /// <summary>Diameter in device-independent pixels of each app circle.</summary>
     public double ChildCircleSize { get; set; } = 48;
 
+    /// <summary>Diameter in device-independent pixels of the logo/icon drawn inside each app circle.</summary>
+    public double IconSize { get; set; } = 32;
+
     /// <summary>Radius of the radial arc in device-independent pixels.</summary>
     public double ArcRadius { get; set; } = 140;
 
@@ -68,6 +71,12 @@ public sealed class LauncherSettings
         if (double.IsNaN(ChildCircleSize) || ChildCircleSize is < 24 or > 96)
         {
             ChildCircleSize = 48;
+            changed = true;
+        }
+
+        if (double.IsNaN(IconSize) || IconSize is < 12 or > 80)
+        {
+            IconSize = 32;
             changed = true;
         }
 

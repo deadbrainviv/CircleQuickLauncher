@@ -25,7 +25,11 @@ public sealed partial class MainWindow : Window
     private readonly AppState _state = AppState.Instance;
     private readonly TrayIconService _tray = new();
     private readonly List<(Button Button, AppEntry? Entry, double CenterXDip, double CenterYDip)> _circles = new();
+    private readonly Dictionary<Button, TextBlock> _nameLabels = new();
     private readonly List<AppEntry> _allEntries;
+
+    // Rotation offset so the mouse wheel can cycle apps around the arc.
+    private int _rotationOffset;
 
     private readonly DispatcherTimer _pollTimer;
     private readonly DispatcherTimer _topmostTimer;
@@ -70,6 +74,9 @@ public sealed partial class MainWindow : Window
         AnchorButton.PointerMoved += OnAnchorPointerMoved;
         AnchorButton.PointerReleased += OnAnchorPointerReleased;
         AnchorButton.ContextFlyout = BuildAnchorFlyout();
+
+        // Mouse wheel over the expanded menu cycles the apps around the arc.
+        RootGrid.PointerWheelChanged += OnRootPointerWheelChanged;
 
         SubclassWindowProc();
         CrashLog.Info($"Main window init hwnd=0x{_hwnd:X} origWndProc=0x{_originalWndProc:X} scale={_scale:F2}");
@@ -344,8 +351,8 @@ public sealed partial class MainWindow : Window
         double statusY = settings.Edge == EdgePosition.Bottom
             ? 24
             : _windowHeightDip - 64;
-        Canvas.SetLeft(StatusText, Math.Max(4, (_windowWidthDip - 230) / 2.0));
-        Canvas.SetTop(StatusText, Math.Max(4, statusY));
+        Canvas.SetLeft(StatusBorder, Math.Max(4, (_windowWidthDip - 230) / 2.0));
+        Canvas.SetTop(StatusBorder, Math.Max(4, statusY));
     }
 
     private double GetDpiScale()
@@ -377,8 +384,9 @@ public sealed partial class MainWindow : Window
     {
         ArcCanvas.Children.Clear();
         _circles.Clear();
+        _nameLabels.Clear();
         ArcCanvas.Children.Add(SearchBox);
-        ArcCanvas.Children.Add(StatusText);
+        ArcCanvas.Children.Add(StatusBorder);
 
         LauncherSettings settings = _state.Settings;
         double childSize = settings.ChildCircleSize;
@@ -388,7 +396,8 @@ public sealed partial class MainWindow : Window
         int maxShown = Math.Min(settings.MaxItems, visible.Count);
         IReadOnlyList<AppEntry> shown = visible.Take(maxShown).ToList();
 
-        int totalSlots = shown.Count + 1; // + add button
+        // Slots: app circles + add + settings + quit.
+        int totalSlots = shown.Count + 3;
         double radius = ArcLayoutCalculator.EnsureMinimumRadius(
             totalSlots, settings.ArcRadius, childSize, floating);
         radius = Math.Min(radius, MaxLayoutRadius());
@@ -409,14 +418,31 @@ public sealed partial class MainWindow : Window
             PlaceCircle(button, cx, cy, childSize);
             ArcCanvas.Children.Add(button);
             _circles.Add((button, entry, cx, cy));
+
+            AddNameLabel(button, entry.Name, cx, cy + (childSize / 2.0) + 4);
         }
 
-        double addX = centerX + points[^1].X;
-        double addY = centerY + points[^1].Y;
+        int specialStart = shown.Count;
+        double addX = centerX + points[specialStart].X;
+        double addY = centerY + points[specialStart].Y;
         Button addButton = CreateAddButton(childSize);
         PlaceCircle(addButton, addX, addY, childSize);
         ArcCanvas.Children.Add(addButton);
         _circles.Add((addButton, null, addX, addY));
+
+        double gearX = centerX + points[specialStart + 1].X;
+        double gearY = centerY + points[specialStart + 1].Y;
+        Button gearButton = CreateSettingsButton(childSize);
+        PlaceCircle(gearButton, gearX, gearY, childSize);
+        ArcCanvas.Children.Add(gearButton);
+        _circles.Add((gearButton, null, gearX, gearY));
+
+        double quitX = centerX + points[specialStart + 2].X;
+        double quitY = centerY + points[specialStart + 2].Y;
+        Button quitButton = CreateQuitButton(childSize);
+        PlaceCircle(quitButton, quitX, quitY, childSize);
+        ArcCanvas.Children.Add(quitButton);
+        _circles.Add((quitButton, null, quitX, quitY));
 
         PositionOverlayContent();
 
@@ -453,14 +479,22 @@ public sealed partial class MainWindow : Window
     private IReadOnlyList<AppEntry> GetFilteredEntries()
     {
         string filter = _searchMode ? SearchBox.Text.Trim() : string.Empty;
-        if (filter.Length == 0)
+        IEnumerable<AppEntry> query = _allEntries;
+        if (filter.Length > 0)
         {
-            return _allEntries;
+            query = query.Where(e => e.Name.Contains(filter, StringComparison.OrdinalIgnoreCase));
         }
 
-        return _allEntries
-            .Where(e => e.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+        List<AppEntry> list = query.ToList();
+
+        // Rotate so the wheel can cycle which apps sit at the "front" of the arc.
+        if (list.Count > 1 && _rotationOffset != 0)
+        {
+            int offset = ((_rotationOffset % list.Count) + list.Count) % list.Count;
+            list = list.Skip(offset).Concat(list.Take(offset)).ToList();
+        }
+
+        return list;
     }
 
     private static void PlaceCircle(Button button, double centerX, double centerY, double size)
@@ -506,12 +540,76 @@ public sealed partial class MainWindow : Window
         return button;
     }
 
-    private static UIElement BuildCircleContent(AppEntry entry)
+    private Button CreateSettingsButton(double size)
+    {
+        var button = new Button
+        {
+            Width = size,
+            Height = size,
+            Style = (Style)RootGrid.Resources["SmallCircleButtonStyle"],
+            Content = "⚙",
+            FontSize = Math.Max(16, size * 0.42),
+        };
+        ToolTipService.SetToolTip(button, "Settings");
+        button.Click += (_, _) => ShowSettingsWindow();
+        button.PointerEntered += OnCirclePointerEntered;
+        button.PointerExited += OnCirclePointerExited;
+        return button;
+    }
+
+    private Button CreateQuitButton(double size)
+    {
+        var button = new Button
+        {
+            Width = size,
+            Height = size,
+            Style = (Style)RootGrid.Resources["SmallCircleButtonStyle"],
+            Content = "✕",
+            FontSize = Math.Max(14, size * 0.38),
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.OrangeRed),
+        };
+        ToolTipService.SetToolTip(button, "Quit CircleQuickLauncher");
+        button.Click += (_, _) =>
+        {
+            _tray.Dispose();
+            ((App)Application.Current).ExitApp();
+        };
+        button.PointerEntered += OnCirclePointerEntered;
+        button.PointerExited += OnCirclePointerExited;
+        return button;
+    }
+
+    private void AddNameLabel(Button button, string name, double cx, double cy)
+    {
+        var label = new TextBlock
+        {
+            Text = name,
+            FontSize = 11,
+            Foreground = new SolidColorBrush(Microsoft.UI.Colors.White),
+            TextAlignment = TextAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 120,
+            Visibility = Visibility.Collapsed,
+            IsHitTestVisible = false,
+        };
+
+        Canvas.SetLeft(label, cx - 60);
+        Canvas.SetTop(label, cy);
+        Canvas.SetZIndex(label, 200);
+        ArcCanvas.Children.Add(label);
+        _nameLabels[button] = label;
+    }
+
+    private UIElement BuildCircleContent(AppEntry entry)
     {
         var grid = new Grid();
 
         string? iconPath = IconService.GetIconPngPath(entry);
         string path = iconPath ?? IconService.DefaultLogoPath;
+
+        double iconSize = _state.Settings.IconSize;
+        double childSize = _state.Settings.ChildCircleSize;
+        double margin = Math.Max(2, (childSize - iconSize) / 2.0);
 
         try
         {
@@ -521,7 +619,11 @@ public sealed partial class MainWindow : Window
                 {
                     Source = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(Path.GetFullPath(path))),
                     Stretch = Stretch.Uniform,
-                    Margin = new Thickness(8),
+                    Width = iconSize,
+                    Height = iconSize,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(margin),
                 });
             }
         }
@@ -749,6 +851,11 @@ public sealed partial class MainWindow : Window
         {
             Expand();
         }
+
+        if (sender is Button b && _nameLabels.TryGetValue(b, out TextBlock? label))
+        {
+            label.Visibility = Visibility.Visible;
+        }
     }
 
     private void OnCirclePointerExited(object sender, PointerRoutedEventArgs e)
@@ -756,6 +863,11 @@ public sealed partial class MainWindow : Window
         if (_expanded && _pointerOutSince == DateTime.MinValue)
         {
             _pointerOutSince = DateTime.UtcNow;
+        }
+
+        if (sender is Button b && _nameLabels.TryGetValue(b, out TextBlock? label))
+        {
+            label.Visibility = Visibility.Collapsed;
         }
     }
 
@@ -873,6 +985,44 @@ public sealed partial class MainWindow : Window
             s.FloatingX = floatingX;
             s.FloatingY = floatingY;
         });
+    }
+
+    private void OnRootPointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_expanded || _dialogOpen || _searchMode)
+        {
+            return;
+        }
+
+        var point = e.GetCurrentPoint(RootGrid);
+        double delta = point.Properties.MouseWheelDelta;
+        if (Math.Abs(delta) < 1)
+        {
+            return;
+        }
+
+        int count = _allEntries.Count;
+        if (count <= 1)
+        {
+            return;
+        }
+
+        _rotationOffset += delta > 0 ? 1 : -1;
+        _pointerOutSince = DateTime.MinValue;
+        RebuildCircles();
+
+        // Keep the freshly-rebuilt circles visible and re-run their entrance stagger.
+        int index = 0;
+        foreach ((Button button, _, _, _) in _circles)
+        {
+            button.Visibility = Visibility.Visible;
+            button.IsHitTestVisible = true;
+            button.Opacity = 1.0;
+            SetCircleVisual(button, visibleState: true, animate: true, delayMs: index * 12);
+            index++;
+        }
+
+        e.Handled = true;
     }
 
     // ------------------------------------------------------------------
@@ -1124,12 +1274,15 @@ public sealed partial class MainWindow : Window
         }
 
         _dialogOpen = true;
+        Window? host = null;
         try
         {
-            NativeMethods.SetForegroundWindow(_hwnd);
+            // Host the ContentDialog on a small centered window so it appears in the
+            // middle of the screen rather than clipped to the edge-anchored launcher.
+            host = CreateCenteredDialogHost("Add app");
             var dialog = new AddAppDialog
             {
-                XamlRoot = RootGrid.XamlRoot,
+                XamlRoot = ((Grid)host.Content).XamlRoot,
             };
             dialog.SeedExisting(_allEntries);
 
@@ -1163,7 +1316,47 @@ public sealed partial class MainWindow : Window
         finally
         {
             _dialogOpen = false;
+            if (host is not null)
+            {
+                try
+                {
+                    host.Close();
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
+    }
+
+    /// <summary>
+    /// Creates a small, borderless, centered, topmost window whose only job is to host a
+    /// ContentDialog in the middle of the primary screen.
+    /// </summary>
+    private Window CreateCenteredDialogHost(string title)
+    {
+        var host = new Window
+        {
+            Title = title,
+            Content = new Grid { Width = 640, Height = 720 },
+        };
+
+        if (WindowService.GetAppWindow(host).Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
+        {
+            presenter.SetBorderAndTitleBar(false, false);
+            presenter.IsResizable = false;
+            presenter.IsMaximizable = false;
+        }
+
+        IntPtr hostHwnd = WindowService.GetHwnd(host);
+        long style = NativeMethods.GetWindowLongPtr(hostHwnd, NativeMethods.GWL_EXSTYLE).ToInt64();
+        style |= NativeMethods.WS_EX_TOOLWINDOW;
+        NativeMethods.SetWindowLongPtr(hostHwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(style));
+
+        host.Activate();
+        WindowService.CenterOnScreen(host, 640, 720);
+        WindowService.ReassertTopmost(hostHwnd);
+        return host;
     }
 
     public void ShowSettingsWindow()
@@ -1249,7 +1442,7 @@ public sealed partial class MainWindow : Window
     private void ShowStatus(string message)
     {
         StatusText.Text = message;
-        StatusText.Visibility = Visibility.Visible;
+        StatusBorder.Visibility = Visibility.Visible;
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
         timer.Tick += (_, _) =>
@@ -1257,7 +1450,7 @@ public sealed partial class MainWindow : Window
             timer.Stop();
             if (!_expanded || StatusText.Text == message)
             {
-                StatusText.Visibility = Visibility.Collapsed;
+                StatusBorder.Visibility = Visibility.Collapsed;
             }
         };
         timer.Start();

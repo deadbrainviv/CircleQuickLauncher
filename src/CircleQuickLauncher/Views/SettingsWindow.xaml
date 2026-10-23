@@ -74,6 +74,14 @@
                     ValueChanged="ChildSizeSlider_ValueChanged" />
 
                 <Slider
+                    x:Name="IconSizeSlider"
+                    Header="Logo / icon size (inside circle)"
+                    Minimum="12"
+                    Maximum="80"
+                    StepFrequency="2"
+                    ValueChanged="IconSizeSlider_ValueChanged" />
+
+                <Slider
                     x:Name="CollapseDelaySlider"
                     Header="Hide delay after pointer leaves"
                     Minimum="100"

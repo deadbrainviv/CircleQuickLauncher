@@ -216,6 +216,38 @@ internal static class NativeMethods
     [DllImport("dwmapi.dll")]
     internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
+    // ---- SetWindowCompositionAttribute (accent policy for transparent windows) ----
+
+    internal const int WCA_ACCENT_POLICY = 19;
+
+    internal enum ACCENT_STATE
+    {
+        ACCENT_DISABLED = 0,
+        ACCENT_ENABLE_TRANSPARENTGRADIENT = 2,
+        ACCENT_ENABLE_ACRYLICBLURBEHIND = 4,
+        ACCENT_ENABLE_BACKDROPFILTER = 5,
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ACCENT_POLICY
+    {
+        public int AccentState;
+        public int AccentFlags;
+        public uint GradientColor; // AABBGGRR
+        public int AnimationId;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WINDOWCOMPOSITIONATTRIBDATA
+    {
+        public int Attrib;
+        public IntPtr pvData;
+        public int cbData;
+    }
+
+    [DllImport("user32.dll")]
+    internal static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WINDOWCOMPOSITIONATTRIBDATA data);
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr SHGetFileInfo(string pszPath, uint dwFileAttributes, ref SHFILEINFO psfi, uint cbFileInfo, uint uFlags);
 

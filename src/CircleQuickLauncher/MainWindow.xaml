@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="CircleQuickLauncher">
 
-    <Grid x:Name="RootGrid" Width="360" Height="360" Background="#F20F172A">
+    <Grid x:Name="RootGrid" Width="360" Height="360" Background="Transparent">
 
         <Grid.Resources>
             <!-- Circular, chrome-free button used for every circle in the launcher. -->
@@ -87,20 +87,28 @@
                 Visibility="Collapsed"
                 PlaceholderText="Type to filter apps…"
                 MaxLength="64"
+                Background="#F01E293B"
+                BorderBrush="#66FFFFFF"
                 TextChanged="SearchBox_TextChanged"
                 KeyDown="SearchBox_KeyDown"
                 LostFocus="SearchBox_LostFocus" />
 
-            <TextBlock
-                x:Name="StatusText"
-                Width="230"
+            <Border
+                x:Name="StatusBorder"
                 Canvas.ZIndex="130"
-                TextWrapping="Wrap"
-                TextAlignment="Center"
-                FontSize="12"
-                Foreground="#FFFFF59D"
+                Background="#E61E293B"
+                CornerRadius="8"
+                Padding="8,4"
                 Visibility="Collapsed"
-                IsHitTestVisible="False" />
+                IsHitTestVisible="False">
+                <TextBlock
+                    x:Name="StatusText"
+                    Width="230"
+                    TextWrapping="Wrap"
+                    TextAlignment="Center"
+                    FontSize="12"
+                    Foreground="#FFFFF59D" />
+            </Border>
         </Canvas>
 
         <Button
