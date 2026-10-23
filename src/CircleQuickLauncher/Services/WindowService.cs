@@ -14,6 +14,9 @@ public static class WindowService
 {
     private const int HWND_TOPMOST = -1;
 
+    /// <summary>GDI stock object index for a null (no-fill) brush.</summary>
+    private const int NULL_BRUSH_INDEX = 5;
+
     public static IntPtr GetHwnd(Window window) =>
         WinRT.Interop.WindowNative.GetWindowHandle(window);
 
@@ -30,90 +33,143 @@ public static class WindowService
         AppWindow appWindow = GetAppWindow(window);
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
-            presenter.SetBorderAndTitleBar(false, false);
+            // hasBorder: true + explicit bit stripping below avoids the WS_DLGFRAME
+            // artifact DWM injects when hasBorder is false.
+            presenter.SetBorderAndTitleBar(true, false);
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
         }
 
+        try
+        {
+            // Let XAML content fill the whole HWND so no GDI stripe shows above it.
+            window.ExtendsContentIntoTitleBar = true;
+        }
+        catch (Exception)
+        {
+        }
+
+        // No SystemBackdrop — the surface is made see-through by removing the GDI
+        // class brush and extending the DWM frame (see ApplyWindowStyles).
+        try
+        {
+            window.SystemBackdrop = null;
+        }
+        catch (Exception)
+        {
+        }
+
         IntPtr hwnd = GetHwnd(window);
         long style = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE).ToInt64();
-        style |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_NOREDIRECTIONBITMAP;
+        style |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE;
         NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(style));
 
-        // Use the WinUI acrylic backdrop so the desktop shows through (frosted/translucent),
-        // which is the reliable way to get a non-opaque overlay in WinUI 3.
-        try
-        {
-            window.SystemBackdrop = new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
-        }
-        catch (Exception)
-        {
-            // Backdrop is optional; the DWM frame extension below is the fallback path.
-        }
-
-        ApplyTransparentFrame(hwnd);
+        ApplyWindowStyles(hwnd);
     }
 
     /// <summary>
-    /// Turns the window frame into a fully transparent DWM frame so only XAML content draws.
-    /// Combined with the acrylic SystemBackdrop this yields a translucent overlay.
-    /// Re-applied after activation because WinUI may reset styles during window setup.
+    /// Applies every Win32/DWM tweak required for a per-pixel-alpha transparent WinUI 3
+    /// window. WinUI 3 offers no first-class API for this; each call here removes a
+    /// specific opaque artifact, and most must be re-applied after activation because
+    /// WinUI silently resets the styles.
     /// </summary>
-    public static void ApplyTransparentFrame(IntPtr hwnd)
+    public static void ApplyWindowStyles(IntPtr hwnd)
     {
-        long style = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE).ToInt64();
-        style |= NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE | NativeMethods.WS_EX_NOREDIRECTIONBITMAP;
-        NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(style));
+        // 1. Drop the window class background brush. Left in place, GDI fills the client
+        //    area with an opaque rectangle before DirectComposition draws — that is the
+        //    black backdrop behind the circles.
+        NativeMethods.SetClassLongPtr(
+            hwnd,
+            NativeMethods.GCLP_HBRBACKGROUND,
+            NativeMethods.GetStockObject(NULL_BRUSH_INDEX));
 
+        // Flush pending presenter changes before touching styles.
+        NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_FRAMECHANGED);
+
+        // 2. Strip frame bits so DWM shows no border.
+        uint style = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_STYLE);
+        NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_STYLE,
+            style & ~(NativeMethods.WS_BORDER | NativeMethods.WS_DLGFRAME | NativeMethods.WS_THICKFRAME));
+
+        // 3. WS_EX_NOREDIRECTIONBITMAP makes DWM composite from the DirectComposition
+        //    visual tree instead of a GDI redirection bitmap, enabling per-pixel alpha.
+        uint exStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
+        NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE,
+            (uint)((exStyle | NativeMethods.WS_EX_NOREDIRECTIONBITMAP | (uint)NativeMethods.WS_EX_TOOLWINDOW | (uint)NativeMethods.WS_EX_NOACTIVATE)
+                   & ~NativeMethods.WS_EX_WINDOWEDGE));
+
+        // 4. Windows 11: no DWM border highlight, no rounded corners.
+        try
+        {
+            if (Environment.OSVersion.Version is { Major: > 10 } or { Major: 10, Build: >= 22000 })
+            {
+                int none = NativeMethods.DWMWA_COLOR_NONE;
+                NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_BORDER_COLOR, ref none, sizeof(uint));
+
+                int noRound = NativeMethods.DWMWCP_DONOTROUND;
+                NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref noRound, sizeof(uint));
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        // 5. Reset any previously-extended DWM frame to zero. Extending it across the
+        //    whole client area (margins -1) makes DWM paint a black glass fill that shows
+        //    through the transparent XAML content, which reads as an opaque black square.
         var margins = new NativeMethods.MARGINS
         {
-            cxLeftWidth = -1,
-            cxRightWidth = -1,
-            cyTopHeight = -1,
-            cyBottomHeight = -1,
+            cxLeftWidth = 0,
+            cxRightWidth = 0,
+            cyTopHeight = 0,
+            cyBottomHeight = 0,
         };
         NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
+
+        // 6. Tell DWM to draw no background of its own. A degenerate blur region means
+        //    "blur everywhere is empty", so the window body becomes see-through while the
+        //    XAML content still composites on top. Without this the frame fills black.
+        IntPtr blurRegion = NativeMethods.CreateRectRgn(-2, -2, -1, -1);
+        try
+        {
+            var blur = new NativeMethods.DWM_BLURBEHIND
+            {
+                dwFlags = NativeMethods.DWM_BB_ENABLE | NativeMethods.DWM_BB_BLURREGION,
+                fEnable = true,
+                hRgnBlur = blurRegion,
+            };
+            NativeMethods.DwmEnableBlurBehindWindow(hwnd, ref blur);
+        }
+        finally
+        {
+            if (blurRegion != IntPtr.Zero)
+            {
+                NativeMethods.DeleteObject(blurRegion);
+            }
+        }
     }
 
     /// <summary>
-    /// Applies the DWM accent policy that renders the window background fully transparent
-    /// while letting XAML content (the circles) draw on top. This is the modern Windows 10/11
-    /// mechanism used by the Start menu and other overlay surfaces.
+    /// The XAML island creates several internal child HWNDs during startup. Each inherits
+    /// the class background brush and paints its own opaque fill on top of ours, so they
+    /// must be cleared individually. Only available after the first Activated event.
     /// </summary>
-    public static void ApplyTransparentAccent(IntPtr hwnd)
+    public static void PatchXamlIslandChildWindows(IntPtr hwnd)
     {
-        try
+        // Keep the delegate alive for the duration of the enumeration.
+        NativeMethods.EnumChildProc proc = (childHwnd, _) =>
         {
-            var accent = new NativeMethods.ACCENT_POLICY
-            {
-                AccentState = (int)NativeMethods.ACCENT_STATE.ACCENT_ENABLE_TRANSPARENTGRADIENT,
-                AccentFlags = 2,
-                GradientColor = 0x00000000, // fully transparent (AABBGGRR)
-            };
+            NativeMethods.SetClassLongPtr(
+                childHwnd,
+                NativeMethods.GCLP_HBRBACKGROUND,
+                NativeMethods.GetStockObject(NULL_BRUSH_INDEX));
+            return true;
+        };
 
-            int size = Marshal.SizeOf<NativeMethods.ACCENT_POLICY>();
-            var data = new NativeMethods.WINDOWCOMPOSITIONATTRIBDATA
-            {
-                Attrib = NativeMethods.WCA_ACCENT_POLICY,
-                pvData = Marshal.AllocHGlobal(size),
-                cbData = size,
-            };
-
-            try
-            {
-                Marshal.StructureToPtr(accent, data.pvData, false);
-                NativeMethods.SetWindowCompositionAttribute(hwnd, ref data);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(data.pvData);
-            }
-        }
-        catch (Exception)
-        {
-            // Accent policy is best-effort; the DWM frame extension is the primary path.
-        }
+        NativeMethods.EnumChildWindows(hwnd, proc, IntPtr.Zero);
+        GC.KeepAlive(proc);
     }
 
     /// <summary>Centers a window on the primary monitor's work area and resizes it.</summary>

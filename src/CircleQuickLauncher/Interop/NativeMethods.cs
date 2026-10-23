@@ -6,11 +6,32 @@ namespace CircleQuickLauncher.Interop;
 internal static class NativeMethods
 {
     internal const int GWL_EXSTYLE = -20;
+    internal const int GWL_STYLE = -16;
     internal const int GWLP_WNDPROC = -4;
 
     internal const int WS_EX_TOOLWINDOW = 0x00000080;
     internal const int WS_EX_NOACTIVATE = 0x08000000;
     internal const int WS_EX_NOREDIRECTIONBITMAP = 0x00020000;
+    internal const int WS_EX_WINDOWEDGE = 0x00000100;
+
+    // Frame style bits stripped so DWM does not inject a visible border.
+    internal const uint WS_BORDER = 0x00800000;
+    internal const uint WS_DLGFRAME = 0x00400000;
+    internal const uint WS_THICKFRAME = 0x00040000;
+
+    internal const uint SWP_FRAMECHANGED = 0x0020;
+
+    // GDI class background brush: the stock brush the window class uses to fill the
+    // client area before compositing. Left in place, it paints an opaque black
+    // rectangle behind the (transparent) XAML content.
+    internal const int GCLP_HBRBACKGROUND = -10;
+    internal const int NULL_BRUSH = 5;
+
+    // Windows 11 DWM attributes used to remove the border highlight and rounded corners.
+    internal const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    internal const int DWMWCP_DONOTROUND = 1;
+    internal const int DWMWA_BORDER_COLOR = 34;
+    internal const int DWMWA_COLOR_NONE = unchecked((int)0xFFFFFFFE);
 
     internal const int WM_NCHITTEST = 0x0084;
     internal const int WM_MOUSEACTIVATE = 0x0021;
@@ -126,6 +147,33 @@ internal static class NativeMethods
     internal static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint SetWindowLong(IntPtr hWnd, int nIndex, uint dwNewLong);
+
+    /// <summary>Replaces the window class background brush (NULL_BRUSH = none).</summary>
+    [DllImport("user32.dll", EntryPoint = "SetClassLongPtrW", SetLastError = true)]
+    internal static extern IntPtr SetClassLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr GetStockObject(int i);
+
+    internal delegate bool EnumChildProc(IntPtr hwnd, IntPtr lParam);
+
+    /// <summary>Enumerates child HWNDs (the XAML island windows each paint their own fill).</summary>
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool EnumChildWindows(IntPtr hWndParent, EnumChildProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    internal const int SW_HIDE = 0;
+    internal const int SW_SHOWNOACTIVATE = 4;
+
+    [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr CallWindowProc(IntPtr lpPrevWndFunc, IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
@@ -212,6 +260,32 @@ internal static class NativeMethods
 
     [DllImport("dwmapi.dll")]
     internal static extern int DwmExtendFrameIntoClientArea(IntPtr hWnd, ref MARGINS pMarInset);
+
+    /// <summary>
+    /// DWM blur-behind: with a degenerate region this tells DWM to paint nothing for the
+    /// window background, which is what makes the surface see-through.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct DWM_BLURBEHIND
+    {
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.Bool)]
+        public bool fEnable;
+        public IntPtr hRgnBlur;
+    }
+
+    internal const uint DWM_BB_ENABLE = 0x00000001;
+    internal const uint DWM_BB_BLURREGION = 0x00000002;
+
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmEnableBlurBehindWindow(IntPtr hWnd, ref DWM_BLURBEHIND pBlurBehind);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr CreateRectRgn(int x1, int y1, int x2, int y2);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DeleteObject(IntPtr hObject);
 
     [DllImport("dwmapi.dll")]
     internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);

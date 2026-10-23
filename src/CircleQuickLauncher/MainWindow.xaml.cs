@@ -135,8 +135,34 @@ public sealed partial class MainWindow : Window
                 CrashLog.Info($"WndProc re-asserted (framework had 0x{current:X}).");
             }
 
-            WindowService.ApplyTransparentFrame(_hwnd);
-            WindowService.ReassertTopmost(_hwnd);
+            // Creating a Windows.UI.Composition.Compositor requires the thread's
+            // DispatcherQueue to already be initialized and pumping. Right after
+            // Activate() it is not, so activation fails with E_ACCESSDENIED. Defer the
+            // backdrop assignment (and the style re-apply it invalidates) to the first
+            // dispatcher pump.
+            DispatcherQueue.TryEnqueue(
+                Microsoft.UI.Dispatching.DispatcherQueuePriority.High,
+                () =>
+                {
+                    try
+                    {
+                        // TransparentBackdrop replaces WinUI's opaque default window fill
+                        // with a fully transparent brush so the desktop shows through.
+                        SystemBackdrop = new TransparentBackdrop();
+                        CrashLog.Info("SystemBackdrop = TransparentBackdrop assigned (deferred).");
+                    }
+                    catch (Exception ex)
+                    {
+                        CrashLog.Write(ex);
+                    }
+
+                    // The backdrop controller resets GWL_EXSTYLE and the class brush, so the
+                    // full style set must be re-applied after it, then the XAML island child
+                    // HWNDs patched (they only exist once activation has happened).
+                    WindowService.ApplyWindowStyles(_hwnd);
+                    WindowService.PatchXamlIslandChildWindows(_hwnd);
+                    WindowService.ReassertTopmost(_hwnd);
+                });
         }
         catch (Exception ex)
         {
@@ -336,7 +362,9 @@ public sealed partial class MainWindow : Window
         _windowOriginYPx = originYPx;
 
         PositionOverlayContent();
-        WindowService.ApplyTransparentFrame(_hwnd);
+
+        // SetWindowPos can clear WS_EX_NOREDIRECTIONBITMAP; restore it after moving.
+        WindowService.ApplyWindowStyles(_hwnd);
     }
 
     private void PositionOverlayContent()
