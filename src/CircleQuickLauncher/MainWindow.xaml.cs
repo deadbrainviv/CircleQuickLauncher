@@ -54,6 +54,11 @@ public sealed partial class MainWindow : Window
     private double _windowWidthDip;
     private double _windowHeightDip;
 
+    // Anchor center in window DIPs. Equals the window center except when the window
+    // is clamped inside a display's work area (edge peek keeps the anchor at the edge).
+    private double _anchorXDip;
+    private double _anchorYDip;
+
     private Point? _dragStartCursorPx;
     private (int X, int Y) _dragStartWindowPx;
 
@@ -70,6 +75,7 @@ public sealed partial class MainWindow : Window
         _scale = GetDpiScale();
 
         AnchorButton.PointerEntered += OnAnchorPointerEntered;
+        AnchorButton.PointerExited += OnAnchorPointerExited;
         AnchorButton.PointerPressed += OnAnchorPointerPressed;
         AnchorButton.PointerMoved += OnAnchorPointerMoved;
         AnchorButton.PointerReleased += OnAnchorPointerReleased;
@@ -79,7 +85,7 @@ public sealed partial class MainWindow : Window
         RootGrid.PointerWheelChanged += OnRootPointerWheelChanged;
 
         SubclassWindowProc();
-        CrashLog.Info($"Main window init hwnd=0x{_hwnd:X} origWndProc=0x{_originalWndProc:X} scale={_scale:F2}");
+
         WireTray();
 
         _state.SettingsChanged += OnSettingsOrAppsChanged;
@@ -132,7 +138,7 @@ public sealed partial class MainWindow : Window
             if (current != _ourWndProcPtr)
             {
                 _originalWndProc = NativeMethods.SetWindowLongPtr(_hwnd, NativeMethods.GWLP_WNDPROC, _ourWndProcPtr);
-                CrashLog.Info($"WndProc re-asserted (framework had 0x{current:X}).");
+
             }
 
             // Creating a Windows.UI.Composition.Compositor requires the thread's
@@ -149,7 +155,7 @@ public sealed partial class MainWindow : Window
                         // TransparentBackdrop replaces WinUI's opaque default window fill
                         // with a fully transparent brush so the desktop shows through.
                         SystemBackdrop = new TransparentBackdrop();
-                        CrashLog.Info("SystemBackdrop = TransparentBackdrop assigned (deferred).");
+
                     }
                     catch (Exception ex)
                     {
@@ -194,6 +200,8 @@ public sealed partial class MainWindow : Window
                     var xamlPoint = new Point(screen.X / _scale, screen.Y / _scale);
                     bool interactive = IsOverInteractiveContent(xamlPoint);
 
+
+
                     return new IntPtr(interactive ? NativeMethods.HTCLIENT : NativeMethods.HTTRANSPARENT);
                 }
 
@@ -201,7 +209,10 @@ public sealed partial class MainWindow : Window
                     return new IntPtr(NativeMethods.MA_NOACTIVATE);
 
                 case NativeMethods.WM_ERASEBKGND:
-                    return new IntPtr(1);
+                    // Overwrite the island's white background fill (WinUIEx
+                    // TransparentTintBackdrop does the same) so only the transparent
+                    // backdrop brush shows. Returns 1 = erase handled.
+                    return new IntPtr(WindowService.PaintBackground(hWnd, wParam) ? 1 : 0);
 
                 default:
                     if (_tray.HandleMessage(msg, wParam, lParam))
@@ -337,20 +348,27 @@ public sealed partial class MainWindow : Window
         AnchorButton.Width = settings.MainCircleSize;
         AnchorButton.Height = settings.MainCircleSize;
 
-        WorkArea work = WindowService.GetPrimaryWorkAreaDip();
+        WorkArea work = WindowService.GetWorkAreaDipForDisplay(settings.DisplayDevice);
         (double anchorX, double anchorY) = WindowLayoutCalculator.GetAnchorCenter(settings, work, width, height);
         (double originXDip, double originYDip) = WindowLayoutCalculator.GetWindowOrigin(anchorX, anchorY, width, height);
 
+        // Clamp the window into the selected display's work area so it never
+        // straddles monitors. The anchor keeps its peek position; anything that
+        // would extend past the display edge is clipped by the window itself.
+        originXDip = ClampAxisToWork(originXDip, work.X, work.Width, width);
+        originYDip = ClampAxisToWork(originYDip, work.Y, work.Height, height);
+
         if (floating)
         {
-            _scale = WindowService.GetScaleForPoint(
-                (int)Math.Round(originXDip * Math.Max(_scale, 0.5)),
-                (int)Math.Round(originYDip * Math.Max(_scale, 0.5)));
+            // Floating mode: the anchor is the window center by definition.
+            anchorX = originXDip + (width / 2.0);
+            anchorY = originYDip + (height / 2.0);
         }
-        else
-        {
-            _scale = GetPrimaryMonitorScale();
-        }
+
+        _anchorXDip = anchorX - originXDip;
+        _anchorYDip = anchorY - originYDip;
+
+        _scale = WindowService.GetScaleForDisplay(settings.DisplayDevice);
 
         int originXPx = (int)Math.Round(originXDip * _scale);
         int originYPx = (int)Math.Round(originYDip * _scale);
@@ -361,25 +379,49 @@ public sealed partial class MainWindow : Window
         _windowOriginXPx = originXPx;
         _windowOriginYPx = originYPx;
 
+        // The anchor button is positioned by margin (not centered) because the
+        // anchor can sit away from the window center after clamping.
+        AnchorButton.Margin = new Thickness(
+            _anchorXDip - (settings.MainCircleSize / 2.0),
+            _anchorYDip - (settings.MainCircleSize / 2.0),
+            0,
+            0);
+
         PositionOverlayContent();
 
-        // SetWindowPos can clear WS_EX_NOREDIRECTIONBITMAP; restore it after moving.
         WindowService.ApplyWindowStyles(_hwnd);
+    }
+
+    private static double ClampAxisToWork(double origin, double workStart, double workSize, double windowSize)
+    {
+        if (windowSize >= workSize)
+        {
+            return workStart + ((workSize - windowSize) / 2.0);
+        }
+
+        return Math.Clamp(origin, workStart, workStart + workSize - windowSize);
     }
 
     private void PositionOverlayContent()
     {
         LauncherSettings settings = _state.Settings;
 
-        // The search box overlays the anchor center so it is always on the visible side.
+        // The search box overlays the anchor center, clamped fully inside the
+        // window (the anchor itself can sit beyond the window edge when peeking).
         SearchBox.Width = Math.Min(180, _windowWidthDip - 40);
-        Canvas.SetLeft(SearchBox, (_windowWidthDip - SearchBox.Width) / 2.0);
-        Canvas.SetTop(SearchBox, (_windowHeightDip - 36) / 2.0);
+        Canvas.SetLeft(SearchBox, Math.Clamp(
+            _anchorXDip - (SearchBox.Width / 2.0),
+            4,
+            Math.Max(4, _windowWidthDip - SearchBox.Width - 4)));
+        Canvas.SetTop(SearchBox, Math.Clamp(
+            _anchorYDip - 18.0,
+            4,
+            Math.Max(4, _windowHeightDip - 40)));
 
         double statusY = settings.Edge == EdgePosition.Bottom
             ? 24
             : _windowHeightDip - 64;
-        Canvas.SetLeft(StatusBorder, Math.Max(4, (_windowWidthDip - 230) / 2.0));
+        Canvas.SetLeft(StatusBorder, Math.Clamp(_anchorXDip - 115.0, 4, Math.Max(4, _windowWidthDip - 234)));
         Canvas.SetTop(StatusBorder, Math.Max(4, statusY));
     }
 
@@ -394,14 +436,6 @@ public sealed partial class MainWindow : Window
         {
             return 1.0;
         }
-    }
-
-    private static double GetPrimaryMonitorScale()
-    {
-        IntPtr monitor = NativeMethods.MonitorFromPoint(
-            new NativeMethods.POINT { X = 0, Y = 0 }, NativeMethods.MONITOR_DEFAULTTOPRIMARY);
-        double scale = WindowService.GetDpiForMonitor(monitor) / 96.0;
-        return scale > 0 ? scale : 1.0;
     }
 
     // ------------------------------------------------------------------
@@ -433,9 +467,9 @@ public sealed partial class MainWindow : Window
         (double start, double end) = ArcLayoutCalculator.GetInwardArcRange(settings.Edge);
         IReadOnlyList<PointF> points = ArcLayoutCalculator.ComputeArc(totalSlots, radius, start, end);
 
-        // Arc points are relative to the anchor (window center) -> translate into canvas space.
-        double centerX = _windowWidthDip / 2.0;
-        double centerY = _windowHeightDip / 2.0;
+        // Arc points are relative to the anchor -> translate into canvas space.
+        double centerX = _anchorXDip;
+        double centerY = _anchorYDip;
 
         for (int i = 0; i < shown.Count; i++)
         {
@@ -701,6 +735,7 @@ public sealed partial class MainWindow : Window
         ExitSearchMode();
         _expanded = false;
         _pollTimer.Stop();
+        SetHoverZoom(AnchorButton, zoomed: false);
 
         if (immediate)
         {
@@ -714,7 +749,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(170) };
+        var hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(210) };
         hideTimer.Tick += (_, _) =>
         {
             hideTimer.Stop();
@@ -755,27 +790,36 @@ public sealed partial class MainWindow : Window
 
             if (visibleState)
             {
+                // Ease-out-back: quick swell past full size, settling with a soft bounce.
+                var easeOutBack = compositor.CreateCubicBezierEasingFunction(
+                    new Vector2(0.34f, 1.56f), new Vector2(0.64f, 1f));
+                var easeOut = compositor.CreateCubicBezierEasingFunction(
+                    new Vector2(0f, 0f), new Vector2(0.58f, 1f));
+
                 scaleAnim.InsertKeyFrame(0f, new Vector3(0.4f, 0.4f, 1f));
-                scaleAnim.InsertKeyFrame(1f, Vector3.One);
-                scaleAnim.Duration = TimeSpan.FromMilliseconds(240);
+                scaleAnim.InsertKeyFrame(1f, Vector3.One, easeOutBack);
+                scaleAnim.Duration = TimeSpan.FromMilliseconds(280);
                 scaleAnim.DelayTime = TimeSpan.FromMilliseconds(delayMs);
                 scaleAnim.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
 
                 fadeAnim.InsertKeyFrame(0f, 0f);
-                fadeAnim.InsertKeyFrame(1f, 1f);
-                fadeAnim.Duration = TimeSpan.FromMilliseconds(200);
+                fadeAnim.InsertKeyFrame(1f, 1f, easeOut);
+                fadeAnim.Duration = TimeSpan.FromMilliseconds(220);
                 fadeAnim.DelayTime = TimeSpan.FromMilliseconds(delayMs);
                 fadeAnim.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
             }
             else
             {
+                var easeIn = compositor.CreateCubicBezierEasingFunction(
+                    new Vector2(0.4f, 0f), new Vector2(1f, 1f));
+
                 scaleAnim.InsertKeyFrame(0f, visual.Scale);
-                scaleAnim.InsertKeyFrame(1f, new Vector3(0.4f, 0.4f, 1f));
-                scaleAnim.Duration = TimeSpan.FromMilliseconds(150);
+                scaleAnim.InsertKeyFrame(1f, new Vector3(0.4f, 0.4f, 1f), easeIn);
+                scaleAnim.Duration = TimeSpan.FromMilliseconds(180);
 
                 fadeAnim.InsertKeyFrame(0f, visual.Opacity);
-                fadeAnim.InsertKeyFrame(1f, 0f);
-                fadeAnim.Duration = TimeSpan.FromMilliseconds(140);
+                fadeAnim.InsertKeyFrame(1f, 0f, easeIn);
+                fadeAnim.Duration = TimeSpan.FromMilliseconds(160);
             }
 
             visual.StartAnimation("Scale", scaleAnim);
@@ -814,6 +858,7 @@ public sealed partial class MainWindow : Window
         if (_pointerOutSince == DateTime.MinValue)
         {
             _pointerOutSince = DateTime.UtcNow;
+
             return;
         }
 
@@ -837,8 +882,8 @@ public sealed partial class MainWindow : Window
 
         LauncherSettings settings = _state.Settings;
 
-        (double anchorXDip, double anchorYDip) = WindowLayoutCalculator.GetAnchorCenterInWindow(
-            _windowWidthDip, _windowHeightDip);
+        double anchorXDip = _anchorXDip;
+        double anchorYDip = _anchorYDip;
         if (WindowLayoutCalculator.IsPointInsideCircle(
                 cursorXDip, cursorYDip, anchorXDip, anchorYDip, settings.MainCircleSize + CircleHitPadding))
         {
@@ -880,9 +925,13 @@ public sealed partial class MainWindow : Window
             Expand();
         }
 
-        if (sender is Button b && _nameLabels.TryGetValue(b, out TextBlock? label))
+        if (sender is Button b)
         {
-            label.Visibility = Visibility.Visible;
+            SetHoverZoom(b, zoomed: true);
+            if (_nameLabels.TryGetValue(b, out TextBlock? label))
+            {
+                label.Visibility = Visibility.Visible;
+            }
         }
     }
 
@@ -893,18 +942,52 @@ public sealed partial class MainWindow : Window
             _pointerOutSince = DateTime.UtcNow;
         }
 
-        if (sender is Button b && _nameLabels.TryGetValue(b, out TextBlock? label))
+        if (sender is Button b)
         {
-            label.Visibility = Visibility.Collapsed;
+            SetHoverZoom(b, zoomed: false);
+            if (_nameLabels.TryGetValue(b, out TextBlock? label))
+            {
+                label.Visibility = Visibility.Collapsed;
+            }
         }
     }
 
     private void OnAnchorPointerEntered(object sender, PointerRoutedEventArgs e)
     {
         _pointerOutSince = DateTime.MinValue;
+        SetHoverZoom(AnchorButton, zoomed: true);
         if (!_expanded && !_dragging && !_dialogOpen)
         {
             Expand();
+        }
+    }
+
+    private void OnAnchorPointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        SetHoverZoom(AnchorButton, zoomed: false);
+    }
+
+    /// <summary>Smoothly scales a circle up on hover (setting: hover zoom percent).</summary>
+    private void SetHoverZoom(UIElement element, bool zoomed)
+    {
+        try
+        {
+            double factor = zoomed ? 1.0 + (_state.Settings.HoverScalePercent / 100.0) : 1.0;
+            Visual visual = ElementCompositionPreview.GetElementVisual(element);
+            Compositor compositor = visual.Compositor;
+
+            var anim = compositor.CreateVector3KeyFrameAnimation();
+            anim.InsertKeyFrame(0f, visual.Scale);
+            anim.InsertKeyFrame(1f, new Vector3((float)factor, (float)factor, 1f),
+                zoomed
+                    ? compositor.CreateCubicBezierEasingFunction(new Vector2(0.34f, 1.56f), new Vector2(0.64f, 1f))
+                    : compositor.CreateCubicBezierEasingFunction(new Vector2(0f, 0f), new Vector2(0.58f, 1f)));
+            anim.Duration = TimeSpan.FromMilliseconds(zoomed ? 180 : 220);
+            visual.StartAnimation("Scale", anim);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
         }
     }
 
@@ -972,17 +1055,13 @@ public sealed partial class MainWindow : Window
         int newX = _dragStartWindowPx.X + deltaX;
         int newY = _dragStartWindowPx.Y + deltaY;
 
-        // Keep a corner of the anchor reachable inside the virtual desktop.
-        int vsX = NativeMethods.GetSystemMetrics(NativeMethods.SM_XVIRTUALSCREEN);
-        int vsY = NativeMethods.GetSystemMetrics(NativeMethods.SM_YVIRTUALSCREEN);
-        int vsW = NativeMethods.GetSystemMetrics(NativeMethods.SM_CXVIRTUALSCREEN);
-        int vsH = NativeMethods.GetSystemMetrics(NativeMethods.SM_CYVIRTUALSCREEN);
+        // Keep the window entirely inside the selected display's work area.
+        Windows.Graphics.RectInt32 work = WindowService.GetWorkAreaPxForDisplay(_state.Settings.DisplayDevice);
         int winW = (int)(_windowWidthDip * _scale);
         int winH = (int)(_windowHeightDip * _scale);
-        int margin = (int)(_state.Settings.MainCircleSize * _scale);
 
-        newX = Math.Clamp(newX, vsX + margin - winW, vsX + vsW - margin);
-        newY = Math.Clamp(newY, vsY + margin - winH, vsY + vsH - margin);
+        newX = (int)Math.Round(ClampAxisToWork(newX, work.X, work.Width, winW));
+        newY = (int)Math.Round(ClampAxisToWork(newY, work.Y, work.Height, winH));
 
         WindowService.Move(_hwnd, newX, newY);
         _windowOriginXPx = newX;
@@ -1302,27 +1381,23 @@ public sealed partial class MainWindow : Window
         }
 
         _dialogOpen = true;
-        Window? host = null;
         try
         {
-            // Host the ContentDialog on a small centered window so it appears in the
-            // middle of the screen rather than clipped to the edge-anchored launcher.
-            host = CreateCenteredDialogHost("Add app");
-            var dialog = new AddAppDialog
-            {
-                XamlRoot = ((Grid)host.Content).XamlRoot,
-            };
-            dialog.SeedExisting(_allEntries);
+            // A standalone centered window (same treatment as Settings) — a ContentDialog
+            // cannot be hosted on the edge-anchored launcher window (no XamlRoot there).
+            var picker = new AddAppWindow();
+            picker.SeedExisting(_allEntries);
+            picker.Activate();
 
-            ContentDialogResult result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Primary && dialog.SelectedApp is not null)
+            StartMenuAppInfo? selected = await picker.WaitForSelectionAsync();
+            if (selected is not null)
             {
                 var entry = new AppEntry
                 {
-                    Name = dialog.SelectedApp.Name,
-                    TargetPath = dialog.SelectedApp.TargetPath,
-                    Arguments = dialog.SelectedApp.Arguments,
-                    WorkingDirectory = dialog.SelectedApp.WorkingDirectory,
+                    Name = selected.Name,
+                    TargetPath = selected.TargetPath,
+                    Arguments = selected.Arguments,
+                    WorkingDirectory = selected.WorkingDirectory,
                 };
                 if (_state.AddApp(entry))
                 {
@@ -1344,47 +1419,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             _dialogOpen = false;
-            if (host is not null)
-            {
-                try
-                {
-                    host.Close();
-                }
-                catch (Exception)
-                {
-                }
-            }
         }
-    }
-
-    /// <summary>
-    /// Creates a small, borderless, centered, topmost window whose only job is to host a
-    /// ContentDialog in the middle of the primary screen.
-    /// </summary>
-    private Window CreateCenteredDialogHost(string title)
-    {
-        var host = new Window
-        {
-            Title = title,
-            Content = new Grid { Width = 640, Height = 720 },
-        };
-
-        if (WindowService.GetAppWindow(host).Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)
-        {
-            presenter.SetBorderAndTitleBar(false, false);
-            presenter.IsResizable = false;
-            presenter.IsMaximizable = false;
-        }
-
-        IntPtr hostHwnd = WindowService.GetHwnd(host);
-        long style = NativeMethods.GetWindowLongPtr(hostHwnd, NativeMethods.GWL_EXSTYLE).ToInt64();
-        style |= NativeMethods.WS_EX_TOOLWINDOW;
-        NativeMethods.SetWindowLongPtr(hostHwnd, NativeMethods.GWL_EXSTYLE, new IntPtr(style));
-
-        host.Activate();
-        WindowService.CenterOnScreen(host, 640, 720);
-        WindowService.ReassertTopmost(hostHwnd);
-        return host;
     }
 
     public void ShowSettingsWindow()

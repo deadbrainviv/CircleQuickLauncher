@@ -29,6 +29,20 @@
                 </ComboBox>
 
                 <Slider
+                    x:Name="EdgePosSlider"
+                    Header="Position on edge: 75%"
+                    Minimum="0"
+                    Maximum="100"
+                    StepFrequency="1"
+                    ValueChanged="EdgePosSlider_ValueChanged" />
+
+                <ComboBox
+                    x:Name="DisplayCombo"
+                    Header="Display"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="DisplayCombo_SelectionChanged" />
+
+                <Slider
                     x:Name="PeekSlider"
                     Header="Peek: 25%"
                     Minimum="10"
@@ -88,6 +102,14 @@
                     Maximum="2000"
                     StepFrequency="50"
                     ValueChanged="CollapseDelaySlider_ValueChanged" />
+
+                <Slider
+                    x:Name="HoverZoomSlider"
+                    Header="Hover zoom: 30%"
+                    Minimum="0"
+                    Maximum="100"
+                    StepFrequency="5"
+                    ValueChanged="HoverZoomSlider_ValueChanged" />
             </StackPanel>
 
             <!-- Startup -->

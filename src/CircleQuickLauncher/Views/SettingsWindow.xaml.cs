@@ -46,6 +46,11 @@ public sealed partial class SettingsWindow : Window
             }
         }
 
+        EdgePosSlider.Value = Math.Round(s.EdgeFraction * 100);
+        EdgePosSlider.Header = $"Position on edge: {Math.Round(s.EdgeFraction * 100)}%";
+        EdgePosSlider.IsEnabled = s.Edge != EdgePosition.FreeFloating;
+        LoadDisplayCombo(s.DisplayDevice);
+
         PeekSlider.Value = Math.Round(s.PeekFraction * 100);
         PeekSlider.Header = $"Peek: {Math.Round(s.PeekFraction * 100)}%";
         RadiusSlider.Value = s.ArcRadius;
@@ -54,6 +59,8 @@ public sealed partial class SettingsWindow : Window
         ChildSizeSlider.Value = s.ChildCircleSize;
         IconSizeSlider.Value = s.IconSize;
         CollapseDelaySlider.Value = s.CollapseDelayMs;
+        HoverZoomSlider.Value = Math.Round(s.HoverScalePercent);
+        HoverZoomSlider.Header = $"Hover zoom: {Math.Round(s.HoverScalePercent)}%";
         DataPathText.Text = AppState.AppDataDirectory;
 
         try
@@ -87,6 +94,43 @@ public sealed partial class SettingsWindow : Window
         });
     }
 
+    /// <summary>Fills the display dropdown once: Primary plus every connected monitor.</summary>
+    private void LoadDisplayCombo(string current)
+    {
+        if (DisplayCombo.Items.Count == 0)
+        {
+            DisplayCombo.Items.Add(new ComboBoxItem { Content = "Primary display", Tag = "" });
+            foreach (WindowService.DisplayInfo display in WindowService.GetDisplays())
+            {
+                if (display.IsPrimary)
+                {
+                    continue;
+                }
+
+                DisplayCombo.Items.Add(new ComboBoxItem
+                {
+                    Content = $"{display.Device} — {display.WidthPx}×{display.HeightPx}",
+                    Tag = display.Device,
+                });
+            }
+        }
+
+        DisplayCombo.SelectedItem = null;
+        foreach (ComboBoxItem item in DisplayCombo.Items)
+        {
+            if (item.Tag is string tag && tag == current)
+            {
+                DisplayCombo.SelectedItem = item;
+                break;
+            }
+        }
+
+        if (DisplayCombo.SelectedItem is null && DisplayCombo.Items.Count > 0)
+        {
+            DisplayCombo.SelectedIndex = 0;
+        }
+    }
+
     private void EdgeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading || (EdgeCombo.SelectedItem as ComboBoxItem)?.Tag is not string tag)
@@ -97,7 +141,40 @@ public sealed partial class SettingsWindow : Window
         if (Enum.TryParse<EdgePosition>(tag, out EdgePosition edge))
         {
             _state.UpdateSettings(s => s.Edge = edge);
+            EdgePosSlider.IsEnabled = edge != EdgePosition.FreeFloating;
         }
+    }
+
+    private void EdgePosSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _state.UpdateSettings(s => s.EdgeFraction = e.NewValue / 100.0);
+        EdgePosSlider.Header = $"Position on edge: {Math.Round(e.NewValue)}%";
+    }
+
+    private void DisplayCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || (DisplayCombo.SelectedItem as ComboBoxItem)?.Tag is not string device)
+        {
+            return;
+        }
+
+        _state.UpdateSettings(s => s.DisplayDevice = device);
+    }
+
+    private void HoverZoomSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading)
+        {
+            return;
+        }
+
+        _state.UpdateSettings(s => s.HoverScalePercent = e.NewValue);
+        HoverZoomSlider.Header = $"Hover zoom: {Math.Round(e.NewValue)}%";
     }
 
     private void PeekSlider_ValueChanged(object sender, RangeBaseValueChangedEventArgs e)

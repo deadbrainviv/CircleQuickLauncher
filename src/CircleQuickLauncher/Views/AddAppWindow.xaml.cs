@@ -5,25 +5,51 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace CircleQuickLauncher.Views;
 
-public sealed partial class AddAppDialog : ContentDialog
+public sealed partial class AddAppWindow : Window
 {
     private List<StartMenuAppInfo> _allApps = new();
     private HashSet<string> _existingKeys = new(StringComparer.OrdinalIgnoreCase);
     private bool _loaded;
 
-    public AddAppDialog()
+    /// <summary>The app the user confirmed, or null if the window was closed/cancelled.</summary>
+    public StartMenuAppInfo? SelectedApp { get; private set; }
+
+    /// <summary>Completes when the window closes, carrying the confirmed selection (if any).</summary>
+    public Task<StartMenuAppInfo?> WaitForSelectionAsync() => _selectionTcs.Task;
+
+    private readonly TaskCompletionSource<StartMenuAppInfo?> _selectionTcs =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public AddAppWindow()
     {
         InitializeComponent();
-        Loaded += OnLoaded;
-    }
 
-    public StartMenuAppInfo? SelectedApp { get; private set; }
+        try
+        {
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(560, 700));
+            WindowService.CenterOnScreen(this, 560, 700);
+        }
+        catch (Exception)
+        {
+        }
+
+        Closed += OnClosed;
+        if (Content is FrameworkElement root)
+        {
+            root.Loaded += OnLoaded;
+        }
+    }
 
     public void SeedExisting(IEnumerable<AppEntry> existing)
     {
         _existingKeys = existing
             .Select(a => a.TargetPath + "|" + a.Arguments)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void OnClosed(object sender, WindowEventArgs args)
+    {
+        _selectionTcs.TrySetResult(SelectedApp);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -50,6 +76,7 @@ public sealed partial class AddAppDialog : ContentDialog
 
         LoadingRing.IsActive = false;
         ApplyFilter();
+        FilterBox.Focus(FocusState.Programmatic);
     }
 
     private void FilterBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -75,7 +102,7 @@ public sealed partial class AddAppDialog : ContentDialog
         AppList.ItemsSource = list;
         AppList.Visibility = list.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyText.Visibility = list.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
-        IsPrimaryButtonEnabled = false;
+        AddButton.IsEnabled = false;
         SelectedApp = null;
         SelectionText.Text = string.Empty;
     }
@@ -101,9 +128,26 @@ public sealed partial class AddAppDialog : ContentDialog
         SelectedApp = info;
 
         bool alreadyAdded = _existingKeys.Contains(info.TargetPath + "|" + info.Arguments);
-        IsPrimaryButtonEnabled = !alreadyAdded;
+        AddButton.IsEnabled = !alreadyAdded;
         SelectionText.Text = alreadyAdded
             ? "Already in the launcher."
             : $"Add “{info.Name}” to the launcher?";
+    }
+
+    private void Add_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectedApp is null)
+        {
+            return;
+        }
+
+        _selectionTcs.TrySetResult(SelectedApp);
+        Close();
+    }
+
+    private void Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        _selectionTcs.TrySetResult(null);
+        Close();
     }
 }

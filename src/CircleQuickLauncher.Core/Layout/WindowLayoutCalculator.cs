@@ -41,7 +41,7 @@ public static class WindowLayoutCalculator
                 // Circle center sits beyond the right edge so only `fraction` of it is visible.
                 double cx = work.Right + half * (1.0 - 2.0 * fraction);
                 double cy = ClampAxis(
-                    work.Y + (work.Height / 2.0),
+                    work.Y + (work.Height * settings.EdgeFraction),
                     work.Y, work.Bottom, windowHeight);
                 return (cx, cy);
             }
@@ -50,7 +50,7 @@ public static class WindowLayoutCalculator
             {
                 double cx = work.Left - half * (1.0 - 2.0 * fraction);
                 double cy = ClampAxis(
-                    work.Y + (work.Height / 2.0),
+                    work.Y + (work.Height * settings.EdgeFraction),
                     work.Y, work.Bottom, windowHeight);
                 return (cx, cy);
             }
@@ -58,7 +58,7 @@ public static class WindowLayoutCalculator
             case EdgePosition.Bottom:
             {
                 double cx = ClampAxis(
-                    work.X + (work.Width / 2.0),
+                    work.X + (work.Width * settings.EdgeFraction),
                     work.X, work.Right, windowWidth);
                 double cy = work.Bottom + half * (1.0 - 2.0 * fraction);
                 return (cx, cy);

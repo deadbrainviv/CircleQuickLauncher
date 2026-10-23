@@ -33,9 +33,7 @@ public static class WindowService
         AppWindow appWindow = GetAppWindow(window);
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
-            // hasBorder: true + explicit bit stripping below avoids the WS_DLGFRAME
-            // artifact DWM injects when hasBorder is false.
-            presenter.SetBorderAndTitleBar(true, false);
+            presenter.SetBorderAndTitleBar(false, false);
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
@@ -90,15 +88,17 @@ public static class WindowService
 
         // 2. Strip frame bits so DWM shows no border.
         uint style = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_STYLE);
-        NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_STYLE,
-            style & ~(NativeMethods.WS_BORDER | NativeMethods.WS_DLGFRAME | NativeMethods.WS_THICKFRAME));
+        uint newStyle = style & ~(NativeMethods.WS_BORDER | NativeMethods.WS_DLGFRAME | NativeMethods.WS_THICKFRAME);
+        NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_STYLE, newStyle);
 
-        // 3. WS_EX_NOREDIRECTIONBITMAP makes DWM composite from the DirectComposition
-        //    visual tree instead of a GDI redirection bitmap, enabling per-pixel alpha.
+
+        // 3. WS_EX_STATICEDGE / WS_EX_CLIENTEDGE paint a raised 1px frame — strip them.
+        //    (WS_EX_NOREDIRECTIONBITMAP intentionally NOT set here: attempting to set it
+        //    breaks XAML island pointer input.)
         uint exStyle = NativeMethods.GetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE);
         NativeMethods.SetWindowLong(hwnd, NativeMethods.GWL_EXSTYLE,
-            (uint)((exStyle | NativeMethods.WS_EX_NOREDIRECTIONBITMAP | (uint)NativeMethods.WS_EX_TOOLWINDOW | (uint)NativeMethods.WS_EX_NOACTIVATE)
-                   & ~NativeMethods.WS_EX_WINDOWEDGE));
+            (uint)((exStyle | (uint)NativeMethods.WS_EX_TOOLWINDOW | (uint)NativeMethods.WS_EX_NOACTIVATE)
+                   & ~(uint)(NativeMethods.WS_EX_WINDOWEDGE | NativeMethods.WS_EX_STATICEDGE | NativeMethods.WS_EX_CLIENTEDGE)));
 
         // 4. Windows 11: no DWM border highlight, no rounded corners.
         try
@@ -109,7 +109,7 @@ public static class WindowService
                 NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_BORDER_COLOR, ref none, sizeof(uint));
 
                 int noRound = NativeMethods.DWMWCP_DONOTROUND;
-                NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref noRound, sizeof(uint));
+                NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref noRound, sizeof(int));
             }
         }
         catch (Exception)
@@ -128,9 +128,10 @@ public static class WindowService
         };
         NativeMethods.DwmExtendFrameIntoClientArea(hwnd, ref margins);
 
-        // 6. Tell DWM to draw no background of its own. A degenerate blur region means
-        //    "blur everywhere is empty", so the window body becomes see-through while the
-        //    XAML content still composites on top. Without this the frame fills black.
+        // 6. Re-apply DWM blur-behind with a degenerate region (the exact combination
+        //    WinUIEx's TransparentTintBackdrop uses). Combined with the transparent
+        //    backdrop brush this is what makes the window body see-through rather than
+        //    showing the XAML island's white background fill.
         IntPtr blurRegion = NativeMethods.CreateRectRgn(-2, -2, -1, -1);
         try
         {
@@ -148,6 +149,46 @@ public static class WindowService
             {
                 NativeMethods.DeleteObject(blurRegion);
             }
+        }
+    }
+
+    /// <summary>
+    /// Paints the window DC with the given color and marks the erase handled. Mirrors
+    /// WinUIEx's TransparentTintBackdrop, which overwrites the island's white background
+    /// so only the transparent backdrop brush shows through.
+    /// </summary>
+    public static bool PaintBackground(IntPtr hwnd, IntPtr wParam)
+    {
+        try
+        {
+            IntPtr hdc = wParam != IntPtr.Zero ? wParam : NativeMethods.GetDC(hwnd);
+            if (hdc == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            var rect = new NativeMethods.RECT();
+            NativeMethods.GetClientRect(hwnd, ref rect);
+
+            IntPtr brush = NativeMethods.CreateSolidBrush(0);
+            try
+            {
+                NativeMethods.FillRect(hdc, ref rect, brush);
+            }
+            finally
+            {
+                NativeMethods.DeleteObject(brush);
+                if (wParam == IntPtr.Zero)
+                {
+                    NativeMethods.ReleaseDC(hwnd, hdc);
+                }
+            }
+
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
         }
     }
 
@@ -170,6 +211,10 @@ public static class WindowService
 
         NativeMethods.EnumChildWindows(hwnd, proc, IntPtr.Zero);
         GC.KeepAlive(proc);
+
+        // The children may already have painted their white fill; clearing the brush only
+        // affects future paints. Force a full repaint so the cleared brushes take effect.
+        NativeMethods.InvalidateRect(hwnd, IntPtr.Zero, true);
     }
 
     /// <summary>Centers a window on the primary monitor's work area and resizes it.</summary>
@@ -268,6 +313,92 @@ public static class WindowService
 
     [DllImport("shcore.dll")]
     private static extern int GetDpiForMonitorRaw(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    /// <summary>A connected display with its device name (e.g. \\.\DISPLAY1) and pixel size.</summary>
+    public sealed record DisplayInfo(string Device, bool IsPrimary, int WidthPx, int HeightPx);
+
+    /// <summary>All connected displays, primary first.</summary>
+    public static IReadOnlyList<DisplayInfo> GetDisplays()
+    {
+        var found = new List<DisplayInfo>();
+        NativeMethods.MonitorEnumProc enumProc = (IntPtr hMonitor, IntPtr hdc, IntPtr lprc, IntPtr data) =>
+        {
+            var mi = new NativeMethods.MONITORINFOEX { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFOEX>() };
+            if (NativeMethods.GetMonitorInfoEx(hMonitor, ref mi))
+            {
+                found.Add(new DisplayInfo(
+                    mi.szDevice ?? string.Empty,
+                    (mi.dwFlags & NativeMethods.MONITORINFOF_PRIMARY) != 0,
+                    mi.rcMonitor.Right - mi.rcMonitor.Left,
+                    mi.rcMonitor.Bottom - mi.rcMonitor.Top));
+            }
+            return true;
+        };
+        NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, enumProc, IntPtr.Zero);
+        GC.KeepAlive(enumProc);
+
+        found.Sort((a, b) =>
+        {
+            if (a.IsPrimary != b.IsPrimary)
+            {
+                return a.IsPrimary ? -1 : 1;
+            }
+            return string.Compare(a.Device, b.Device, StringComparison.OrdinalIgnoreCase);
+        });
+        return found;
+    }
+
+    /// <summary>Monitor handle for a device name; unknown/empty falls back to the primary monitor.</summary>
+    public static IntPtr GetMonitorForDisplay(string? device)
+    {
+        if (!string.IsNullOrWhiteSpace(device))
+        {
+            IntPtr match = IntPtr.Zero;
+            NativeMethods.MonitorEnumProc enumProc = (IntPtr hMonitor, IntPtr hdc, IntPtr lprc, IntPtr data) =>
+            {
+                var mi = new NativeMethods.MONITORINFOEX { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFOEX>() };
+                if (NativeMethods.GetMonitorInfoEx(hMonitor, ref mi) &&
+                    string.Equals(mi.szDevice, device, StringComparison.OrdinalIgnoreCase))
+                {
+                    match = hMonitor;
+                    return false;
+                }
+                return true;
+            };
+            NativeMethods.EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, enumProc, IntPtr.Zero);
+            GC.KeepAlive(enumProc);
+            if (match != IntPtr.Zero)
+            {
+                return match;
+            }
+        }
+
+        return NativeMethods.MonitorFromPoint(new NativeMethods.POINT { X = 0, Y = 0 }, NativeMethods.MONITOR_DEFAULTTOPRIMARY);
+    }
+
+    /// <summary>Work area (DIPs) of the selected display; empty device name selects the primary.</summary>
+    public static Core.Layout.WorkArea GetWorkAreaDipForDisplay(string? device) =>
+        GetWorkAreaDip(GetMonitorForDisplay(device));
+
+    /// <summary>DPI scale of the selected display; empty device name selects the primary.</summary>
+    public static double GetScaleForDisplay(string? device)
+    {
+        double scale = GetDpiForMonitor(GetMonitorForDisplay(device)) / 96.0;
+        return scale > 0 ? scale : 1.0;
+    }
+
+    /// <summary>Work area (physical pixels) of the selected display; empty device name selects the primary.</summary>
+    public static RectInt32 GetWorkAreaPxForDisplay(string? device)
+    {
+        IntPtr monitor = GetMonitorForDisplay(device);
+        var info = new NativeMethods.MONITORINFO { cbSize = Marshal.SizeOf<NativeMethods.MONITORINFO>() };
+        NativeMethods.GetMonitorInfo(monitor, ref info);
+        return new RectInt32(
+            info.rcWork.Left,
+            info.rcWork.Top,
+            info.rcWork.Right - info.rcWork.Left,
+            info.rcWork.Bottom - info.rcWork.Top);
+    }
 
     public static IntPtr GetMonitorAt(int xPx, int yPx) =>
         NativeMethods.MonitorFromPoint(new NativeMethods.POINT { X = xPx, Y = yPx }, NativeMethods.MONITOR_DEFAULTTONEAREST);

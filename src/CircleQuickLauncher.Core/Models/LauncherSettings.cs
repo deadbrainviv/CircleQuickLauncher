@@ -20,6 +20,20 @@ public sealed class LauncherSettings
     /// <summary>Fraction of the main circle that peeks out from the edge (0.10 - 0.75).</summary>
     public double PeekFraction { get; set; } = 0.25;
 
+    /// <summary>
+    /// Where the anchor sits along the chosen edge, as a fraction (0 = start, 1 = end).
+    /// Default 0.75 (three-quarters down the right edge).
+    /// </summary>
+    public double EdgeFraction { get; set; } = 0.75;
+
+    /// <summary>Percent a circle grows when hovered (0 - 100). Default 30%.</summary>
+    public double HoverScalePercent { get; set; } = 30;
+
+    /// <summary>
+    /// Target display device name (e.g. "\\.\DISPLAY1"). Empty = primary display.
+    /// </summary>
+    public string DisplayDevice { get; set; } = "";
+
     /// <summary>Diameter in device-independent pixels of the anchor circle.</summary>
     public double MainCircleSize { get; set; } = 56;
 
@@ -59,6 +73,24 @@ public sealed class LauncherSettings
         if (double.IsNaN(PeekFraction) || PeekFraction is < 0.10 or > 0.75)
         {
             PeekFraction = 0.25;
+            changed = true;
+        }
+
+        if (double.IsNaN(EdgeFraction) || EdgeFraction is < 0.0 or > 1.0)
+        {
+            EdgeFraction = 0.75;
+            changed = true;
+        }
+
+        if (double.IsNaN(HoverScalePercent) || HoverScalePercent is < 0.0 or > 100.0)
+        {
+            HoverScalePercent = 30;
+            changed = true;
+        }
+
+        if (DisplayDevice is null)
+        {
+            DisplayDevice = "";
             changed = true;
         }
 

@@ -115,8 +115,8 @@
             x:Name="AnchorButton"
             Width="56"
             Height="56"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
             Style="{StaticResource CircleButtonStyle}"
             ToolTipService.ToolTip="CircleQuickLauncher — hover to open, click to search">
             <Grid>
