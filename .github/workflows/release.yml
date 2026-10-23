@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  VERSION: ${{ github.ref_name }}
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Strip leading v from tag for version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = "${{ env.VERSION }}"
+          if ($v.StartsWith('v')) { $v = $v.Substring(1) }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore CircleQuickLauncher.sln
+
+      - name: Build
+        run: dotnet build CircleQuickLauncher.sln -c Release -p:Platform=x64 --no-restore -p:Version=${{ steps.ver.outputs.version }}
+
+      - name: Test
+        run: dotnet test tests/CircleQuickLauncher.Tests -c Release --no-build
+
+      - name: Publish portable
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          dotnet publish src/CircleQuickLauncher/CircleQuickLauncher.csproj `
+            -c Release -p:Platform=x64 `
+            -p:PublishProfile=Portable `
+            -p:Version=$v `
+            --nologo
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
+
+      - name: Zip portable
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          Compress-Archive -Path "artifacts/portable/*" `
+            -DestinationPath "artifacts/CircleQuickLauncher-$v-portable-win-x64.zip" -Force
+
+      - name: Build MSIX
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $msixDir = "artifacts/msix"
+          New-Item -ItemType Directory -Path $msixDir -Force | Out-Null
+          dotnet publish src/CircleQuickLauncher/CircleQuickLauncher.csproj `
+            -c Release -p:Platform=x64 `
+            -p:WindowsPackageType=MSIX `
+            -p:GenerateAppxPackageOnBuild=true `
+            -p:AppxPackageSigningEnabled=false `
+            -p:AppxPackageDir="$msixDir\" `
+            -p:UapAppxPackageBuildMode=SideloadOnly `
+            -p:AppxBundle=Never `
+            -p:Version=$v `
+            --nologo
+          if ($LASTEXITCODE -ne 0) { Write-Warning 'MSIX build failed (non-fatal).' }
+
+      - name: Collect MSIX
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $msix = Get-ChildItem artifacts/msix -Recurse -Filter *.msix -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($msix) {
+            Copy-Item $msix.FullName "artifacts/CircleQuickLauncher-$v.msix"
+          }
+
+      - name: SHA256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts -File -Include *.zip,*.msix -Recurse | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            $line = "$hash  $($_.Name)"
+            Add-Content -Path "artifacts/SHA256SUMS.txt" -Value $line
+            Write-Host $line
+          }
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CircleQuickLauncher ${{ steps.ver.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/*.zip
+            artifacts/*.msix
+            artifacts/SHA256SUMS.txt
+          body: |
+            ## CircleQuickLauncher ${{ steps.ver.outputs.version }}
+
+            Floating edge-peeking circular quick launcher for Windows 10/11 (x64).
+
+            ### Downloads
+            - **Portable** (`*-portable-win-x64.zip`) — self-contained, no install needed. Extract and run `CircleQuickLauncher.exe`.
+            - **MSIX** (`*.msix`) — sideload package (requires Developer Mode or trusted cert).
+            - **SHA256SUMS.txt** — verify downloads.
+
+            ### Requirements
+            Windows 10 1809 (build 17763) or later, x64.
+
+            ### Install (portable)
+            1. Download and extract the zip.
+            2. Run `CircleQuickLauncher.exe`.
+            3. Right-click the tray icon → Settings → enable "Start with Windows" if desired.
+
+            See [README](https://github.com/${{ github.repository }}#readme) and [BUILDING](https://github.com/${{ github.repository }}/blob/main/docs/BUILDING.md) for details.

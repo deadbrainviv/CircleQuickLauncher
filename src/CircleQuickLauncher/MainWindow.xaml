@@ -1,0 +1,129 @@
+<Window
+    x:Class="CircleQuickLauncher.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="CircleQuickLauncher">
+
+    <Grid x:Name="RootGrid" Width="360" Height="360" Background="#F20F172A">
+
+        <Grid.Resources>
+            <!-- Circular, chrome-free button used for every circle in the launcher. -->
+            <ControlTemplate x:Key="CircleButtonTemplate" TargetType="Button">
+                <Grid x:Name="TemplateRoot">
+                    <Grid.RenderTransform>
+                        <ScaleTransform x:Name="RootScale" ScaleX="1" ScaleY="1" />
+                    </Grid.RenderTransform>
+                    <Ellipse
+                        x:Name="HoverGlow"
+                        Margin="-5"
+                        Fill="#440EA5E9"
+                        Opacity="0"
+                        IsHitTestVisible="False" />
+                    <Border
+                        x:Name="CircleBorder"
+                        Background="#E61E293B"
+                        BorderBrush="#66FFFFFF"
+                        BorderThickness="1.5"
+                        CornerRadius="200">
+                        <ContentPresenter
+                            x:Name="ContentHost"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Content="{TemplateBinding Content}"
+                            ContentTransitions="{TemplateBinding ContentTransitions}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            ContentTemplateSelector="{TemplateBinding ContentTemplateSelector}" />
+                    </Border>
+                </Grid>
+                <VisualStateManager.VisualStateGroups>
+                    <VisualStateGroup x:Name="CommonStates">
+                        <VisualState x:Name="Normal" />
+                        <VisualState x:Name="PointerOver">
+                            <VisualState.Setters>
+                                <Setter Target="CircleBorder.BorderBrush" Value="#CCFFFFFF" />
+                                <Setter Target="CircleBorder.Background" Value="#F233415C" />
+                                <Setter Target="HoverGlow.Opacity" Value="1" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="Pressed">
+                            <VisualState.Setters>
+                                <Setter Target="RootScale.ScaleX" Value="0.94" />
+                                <Setter Target="RootScale.ScaleY" Value="0.94" />
+                                <Setter Target="CircleBorder.BorderBrush" Value="#FFFFFFFF" />
+                                <Setter Target="CircleBorder.Background" Value="#FF3D4A66" />
+                            </VisualState.Setters>
+                        </VisualState>
+                        <VisualState x:Name="Disabled">
+                            <VisualState.Setters>
+                                <Setter Target="CircleBorder.Opacity" Value="0.45" />
+                            </VisualState.Setters>
+                        </VisualState>
+                    </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+            </ControlTemplate>
+
+            <Style x:Key="CircleButtonStyle" TargetType="Button">
+                <Setter Property="Template" Value="{StaticResource CircleButtonTemplate}" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="HorizontalAlignment" Value="Left" />
+                <Setter Property="VerticalAlignment" Value="Top" />
+                <Setter Property="UseLayoutRounding" Value="True" />
+            </Style>
+
+            <Style x:Key="SmallCircleButtonStyle" TargetType="Button" BasedOn="{StaticResource CircleButtonStyle}">
+                <Setter Property="FontSize" Value="22" />
+                <Setter Property="Foreground" Value="#FFFFFFFF" />
+            </Style>
+        </Grid.Resources>
+
+        <Canvas x:Name="ArcCanvas">
+            <TextBox
+                x:Name="SearchBox"
+                Width="180"
+                Height="36"
+                Canvas.ZIndex="120"
+                Visibility="Collapsed"
+                PlaceholderText="Type to filter apps…"
+                MaxLength="64"
+                TextChanged="SearchBox_TextChanged"
+                KeyDown="SearchBox_KeyDown"
+                LostFocus="SearchBox_LostFocus" />
+
+            <TextBlock
+                x:Name="StatusText"
+                Width="230"
+                Canvas.ZIndex="130"
+                TextWrapping="Wrap"
+                TextAlignment="Center"
+                FontSize="12"
+                Foreground="#FFFFF59D"
+                Visibility="Collapsed"
+                IsHitTestVisible="False" />
+        </Canvas>
+
+        <Button
+            x:Name="AnchorButton"
+            Width="56"
+            Height="56"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Style="{StaticResource CircleButtonStyle}"
+            ToolTipService.ToolTip="CircleQuickLauncher — hover to open, click to search">
+            <Grid>
+                <Ellipse Fill="#33000000" Margin="2,3,0,0" IsHitTestVisible="False" />
+                <Border
+                    CornerRadius="200"
+                    Background="#FF0F172A"
+                    BorderBrush="#FFFFFFFF"
+                    BorderThickness="2">
+                    <Image
+                        x:Name="AnchorImage"
+                        Margin="7"
+                        Stretch="Uniform" />
+                </Border>
+            </Grid>
+        </Button>
+    </Grid>
+</Window>

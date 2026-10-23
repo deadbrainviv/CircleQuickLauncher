@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>CircleQuickLauncher.Core</RootNamespace>
+    <AssemblyName>CircleQuickLauncher.Core</AssemblyName>
+    <Description>Core domain logic for CircleQuickLauncher: configuration, layout math, and input validation.</Description>
+  </PropertyGroup>
+
+</Project>

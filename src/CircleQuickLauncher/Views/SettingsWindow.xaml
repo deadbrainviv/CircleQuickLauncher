@@ -1,0 +1,114 @@
+<Window
+    x:Class="CircleQuickLauncher.Views.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="CircleQuickLauncher Settings">
+
+    <ScrollViewer Padding="24,16,24,24">
+        <StackPanel MaxWidth="560" Spacing="18">
+
+            <TextBlock Text="CircleQuickLauncher" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock
+                Text="A floating circular quick launcher that peeks from the screen edge and opens a radial app menu on hover."
+                TextWrapping="Wrap"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+
+            <!-- Placement -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Placement" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                <ComboBox
+                    x:Name="EdgeCombo"
+                    Header="Screen edge"
+                    HorizontalAlignment="Stretch"
+                    SelectionChanged="EdgeCombo_SelectionChanged">
+                    <ComboBoxItem Content="Right edge" Tag="Right" />
+                    <ComboBoxItem Content="Left edge" Tag="Left" />
+                    <ComboBoxItem Content="Bottom edge" Tag="Bottom" />
+                    <ComboBoxItem Content="Free floating (draggable)" Tag="FreeFloating" />
+                </ComboBox>
+
+                <Slider
+                    x:Name="PeekSlider"
+                    Header="Peek: 25%"
+                    Minimum="10"
+                    Maximum="75"
+                    StepFrequency="5"
+                    ValueChanged="PeekSlider_ValueChanged" />
+
+                <Slider
+                    x:Name="RadiusSlider"
+                    Header="Menu radius"
+                    Minimum="70"
+                    Maximum="400"
+                    StepFrequency="10"
+                    ValueChanged="RadiusSlider_ValueChanged" />
+
+                <Slider
+                    x:Name="MaxItemsSlider"
+                    Header="Maximum apps shown"
+                    Minimum="4"
+                    Maximum="20"
+                    StepFrequency="1"
+                    ValueChanged="MaxItemsSlider_ValueChanged" />
+            </StackPanel>
+
+            <!-- Circles -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Circles" Style="{StaticResource SubtitleTextBlockStyle}" />
+
+                <Slider
+                    x:Name="AnchorSizeSlider"
+                    Header="Anchor circle size"
+                    Minimum="32"
+                    Maximum="96"
+                    StepFrequency="4"
+                    ValueChanged="AnchorSizeSlider_ValueChanged" />
+
+                <Slider
+                    x:Name="ChildSizeSlider"
+                    Header="App circle size"
+                    Minimum="24"
+                    Maximum="80"
+                    StepFrequency="4"
+                    ValueChanged="ChildSizeSlider_ValueChanged" />
+
+                <Slider
+                    x:Name="CollapseDelaySlider"
+                    Header="Hide delay after pointer leaves"
+                    Minimum="100"
+                    Maximum="2000"
+                    StepFrequency="50"
+                    ValueChanged="CollapseDelaySlider_ValueChanged" />
+            </StackPanel>
+
+            <!-- Startup -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Startup" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <ToggleSwitch
+                    x:Name="AutorunToggle"
+                    Header="Start with Windows"
+                    Toggled="AutorunToggle_Toggled" />
+            </StackPanel>
+
+            <!-- Data -->
+            <StackPanel Spacing="8">
+                <TextBlock Text="Data" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Click="OpenDataFolder_Click" Content="Open data folder" />
+                    <Button Click="ResetPosition_Click" Content="Reset position" />
+                </StackPanel>
+                <TextBlock
+                    x:Name="DataPathText"
+                    FontSize="12"
+                    TextWrapping="Wrap"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <TextBlock
+                x:Name="VersionText"
+                FontSize="12"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>
