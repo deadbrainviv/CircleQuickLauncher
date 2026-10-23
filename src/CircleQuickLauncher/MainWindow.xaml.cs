@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Windowing;
 using Windows.Foundation;
 using Windows.Storage.Pickers;
@@ -406,17 +407,25 @@ public sealed partial class MainWindow : Window
     {
         LauncherSettings settings = _state.Settings;
 
-        // The search box overlays the anchor center, clamped fully inside the
-        // window (the anchor itself can sit beyond the window edge when peeking).
+        // The search box sits beside the anchor (below when there is room,
+        // otherwise above) so it never appears under the cursor and steals the
+        // anchor's hover. Fully clamped inside the window (the anchor itself
+        // can sit beyond the window edge when peeking).
         SearchBox.Width = Math.Min(180, _windowWidthDip - 40);
         Canvas.SetLeft(SearchBox, Math.Clamp(
             _anchorXDip - (SearchBox.Width / 2.0),
             4,
             Math.Max(4, _windowWidthDip - SearchBox.Width - 4)));
+        const double searchBoxHeight = 36;
+        double searchBelow = _anchorYDip + (settings.MainCircleSize / 2.0) + 8.0;
+        double searchAbove = _anchorYDip - (settings.MainCircleSize / 2.0) - 8.0 - searchBoxHeight;
+        double searchTop = searchBelow + searchBoxHeight <= _windowHeightDip - 4
+            ? searchBelow
+            : searchAbove;
         Canvas.SetTop(SearchBox, Math.Clamp(
-            _anchorYDip - 18.0,
+            searchTop,
             4,
-            Math.Max(4, _windowHeightDip - 40)));
+            Math.Max(4, _windowHeightDip - searchBoxHeight - 4)));
 
         double statusY = settings.Edge == EdgePosition.Bottom
             ? 24
@@ -784,23 +793,17 @@ public sealed partial class MainWindow : Window
 
             Visual visual = ElementCompositionPreview.GetElementVisual(button);
             Compositor compositor = visual.Compositor;
-
-            var scaleAnim = compositor.CreateVector3KeyFrameAnimation();
             var fadeAnim = compositor.CreateScalarKeyFrameAnimation();
 
             if (visibleState)
             {
                 // Ease-out-back: quick swell past full size, settling with a soft bounce.
-                var easeOutBack = compositor.CreateCubicBezierEasingFunction(
-                    new Vector2(0.34f, 1.56f), new Vector2(0.64f, 1f));
+                var easeOutBack = new BackEase { EasingMode = EasingMode.EaseOut };
+
+                AnimateElementScale(button, to: 1.0, durationMs: 280, delayMs: delayMs, easeOutBack, from: 0.4);
+
                 var easeOut = compositor.CreateCubicBezierEasingFunction(
                     new Vector2(0f, 0f), new Vector2(0.58f, 1f));
-
-                scaleAnim.InsertKeyFrame(0f, new Vector3(0.4f, 0.4f, 1f));
-                scaleAnim.InsertKeyFrame(1f, Vector3.One, easeOutBack);
-                scaleAnim.Duration = TimeSpan.FromMilliseconds(280);
-                scaleAnim.DelayTime = TimeSpan.FromMilliseconds(delayMs);
-                scaleAnim.DelayBehavior = AnimationDelayBehavior.SetInitialValueBeforeDelay;
 
                 fadeAnim.InsertKeyFrame(0f, 0f);
                 fadeAnim.InsertKeyFrame(1f, 1f, easeOut);
@@ -810,19 +813,18 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                var easeIn = compositor.CreateCubicBezierEasingFunction(
+                var easeIn = new CubicEase { EasingMode = EasingMode.EaseIn };
+
+                AnimateElementScale(button, to: 0.4, durationMs: 180, delayMs: 0, easeIn);
+
+                var easeInFade = compositor.CreateCubicBezierEasingFunction(
                     new Vector2(0.4f, 0f), new Vector2(1f, 1f));
 
-                scaleAnim.InsertKeyFrame(0f, visual.Scale);
-                scaleAnim.InsertKeyFrame(1f, new Vector3(0.4f, 0.4f, 1f), easeIn);
-                scaleAnim.Duration = TimeSpan.FromMilliseconds(180);
-
                 fadeAnim.InsertKeyFrame(0f, visual.Opacity);
-                fadeAnim.InsertKeyFrame(1f, 0f, easeIn);
+                fadeAnim.InsertKeyFrame(1f, 0f, easeInFade);
                 fadeAnim.Duration = TimeSpan.FromMilliseconds(160);
             }
 
-            visual.StartAnimation("Scale", scaleAnim);
             visual.StartAnimation("Opacity", fadeAnim);
         }
         catch (Exception ex)
@@ -858,7 +860,6 @@ public sealed partial class MainWindow : Window
         if (_pointerOutSince == DateTime.MinValue)
         {
             _pointerOutSince = DateTime.UtcNow;
-
             return;
         }
 
@@ -967,23 +968,78 @@ public sealed partial class MainWindow : Window
         SetHoverZoom(AnchorButton, zoomed: false);
     }
 
+    /// <summary>
+    /// Scales an element about its center via a XAML RenderTransform (composition
+    /// Scale/Offset on XAML element visuals are re-owned by layout and unreliable).
+    /// </summary>
+    private static void AnimateElementScale(
+        UIElement element,
+        double to,
+        double durationMs,
+        double delayMs,
+        EasingFunctionBase easing,
+        double? from = null)
+    {
+        if (element is not FrameworkElement fe)
+        {
+            return;
+        }
+
+        double w = fe.ActualWidth;
+        double h = fe.ActualHeight;
+        if (w <= 0 || h <= 0)
+        {
+            return;
+        }
+
+        if (fe.RenderTransform is not ScaleTransform st)
+        {
+            st = new ScaleTransform();
+            fe.RenderTransform = st;
+        }
+
+        st.CenterX = w / 2.0;
+        st.CenterY = h / 2.0;
+
+        var sb = new Storyboard();
+        foreach (string prop in new[] { "ScaleX", "ScaleY" })
+        {
+            var anim = new DoubleAnimation
+            {
+                To = to,
+                Duration = TimeSpan.FromMilliseconds(durationMs),
+                EasingFunction = easing,
+                EnableDependentAnimation = true,
+            };
+            if (from.HasValue)
+            {
+                anim.From = from.Value;
+            }
+
+            if (delayMs > 0)
+            {
+                anim.BeginTime = TimeSpan.FromMilliseconds(delayMs);
+            }
+
+            Storyboard.SetTarget(anim, st);
+            Storyboard.SetTargetProperty(anim, prop);
+            sb.Children.Add(anim);
+        }
+
+        sb.Begin();
+    }
+
     /// <summary>Smoothly scales a circle up on hover (setting: hover zoom percent).</summary>
     private void SetHoverZoom(UIElement element, bool zoomed)
     {
         try
         {
             double factor = zoomed ? 1.0 + (_state.Settings.HoverScalePercent / 100.0) : 1.0;
-            Visual visual = ElementCompositionPreview.GetElementVisual(element);
-            Compositor compositor = visual.Compositor;
+            EasingFunctionBase easing = zoomed
+                ? new BackEase { EasingMode = EasingMode.EaseOut }
+                : new CubicEase { EasingMode = EasingMode.EaseOut };
 
-            var anim = compositor.CreateVector3KeyFrameAnimation();
-            anim.InsertKeyFrame(0f, visual.Scale);
-            anim.InsertKeyFrame(1f, new Vector3((float)factor, (float)factor, 1f),
-                zoomed
-                    ? compositor.CreateCubicBezierEasingFunction(new Vector2(0.34f, 1.56f), new Vector2(0.64f, 1f))
-                    : compositor.CreateCubicBezierEasingFunction(new Vector2(0f, 0f), new Vector2(0.58f, 1f)));
-            anim.Duration = TimeSpan.FromMilliseconds(zoomed ? 180 : 220);
-            visual.StartAnimation("Scale", anim);
+            AnimateElementScale(element, factor, zoomed ? 180 : 220, 0, easing);
         }
         catch (Exception ex)
         {
