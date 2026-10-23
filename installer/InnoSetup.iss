@@ -3,7 +3,7 @@
 ; Expects portable publish output at ..\artifacts\portable\
 
 #define MyAppName "CircleQuickLauncher"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "CircleQuickLauncher Contributors"
 #define MyAppURL "https://github.com/circlequicklauncher/CircleQuickLauncher"
 #define MyAppExeName "CircleQuickLauncher.exe"

@@ -29,11 +29,14 @@
 
 ## Features
 
-- **Edge-peeking anchor** — a small circular handle rests half-hidden at the screen edge (Left, Right, or Bottom).
+- **Edge-peeking anchor** — a small circular handle rests half-hidden at the screen edge (Left, Right, Bottom, or Free-floating).
 - **Radial app menu on hover** — point at the handle and up to 12 app circles fan out along a smooth arc with staggered spring animation.
+- **Hover zoom** — the anchor and app circles scale up smoothly (default 30%, configurable) with a fluid center-preserving animation.
+- **Configurable edge position** — place the anchor anywhere along the chosen edge (default: 75% down the right edge).
+- **Display selection** — stay on the primary display by default, or pick any connected monitor.
 - **Custom PNG icons** — assign any PNG as an app's launcher icon; icons are validated (min dimensions, non-empty) and cached locally.
 - **Start Menu integration** — browse and add installed apps from the Windows Start Menu with one click.
-- **Search / filter** — type to filter apps inside the expanded menu (click the anchor or press search).
+- **Search / filter** — click the anchor to open a search box; type to filter apps inside the expanded menu.
 - **System tray resident** — lives in the notification area; no taskbar button. Right-click for Settings, Add App, and Exit.
 - **Lightweight** — pure WinUI 3 / C# with no background services, no telemetry, no network calls. Config is local JSON.
 - **Autorun option** — optional "Start with Windows" (registry Run key or MSIX StartupTask).
@@ -42,9 +45,13 @@
 
 ## Screenshots
 
-> *Hover the right-edge anchor → radial menu fans out → click an app to launch.*
+| Fan expanded | Hover zoom |
+| --- | --- |
+| ![Fan expanded](docs/screenshots/FanExpanded.png) | ![Hover zoom](docs/screenshots/HoverZoom.png) |
 
-*(Add annotated screenshots/GIFs here — `docs/screenshots/` is a good home.)*
+| Settings | Add an app |
+| --- | --- |
+| ![Settings](docs/screenshots/Settings.png) | ![Add an app](docs/screenshots/AddApp.png) |
 
 ## Download
 
@@ -92,13 +99,17 @@ Open via tray → **Settings**. All values are persisted to `%APPDATA%\CircleQui
 
 | Setting | Range | Default | Description |
 | --- | --- | --- | --- |
-| Edge | Left / Right / Bottom / Free-floating | Right | Which screen edge the anchor peeks from. |
+| Screen edge | Left / Right / Bottom / Free-floating | Right | Which screen edge the anchor peeks from. |
+| Position on edge | 0 – 100 % | 75 % | Where the anchor sits along the chosen edge. |
+| Display | Primary / any connected display | Primary | Which monitor hosts the launcher. |
 | Peek | 10 – 75 % | 25 % | How much of the anchor peeks out. |
-| Arc radius | 70 – 400 px | 140 | Radius of the radial fan. |
-| Max items | 1 – 20 | 12 | Maximum app circles in the arc. |
-| Anchor size | 32 – 128 px | 56 | Diameter of the anchor circle. |
-| Child circle size | 24 – 96 px | 48 | Diameter of each app circle. |
-| Collapse delay | 0 – 5000 ms | 400 | Grace period before collapsing after pointer exit. |
+| Menu radius | 70 – 400 px | 140 | Radius of the radial fan. |
+| Maximum apps shown | 1 – 20 | 12 | Maximum app circles in the arc. |
+| Anchor circle size | 32 – 128 px | 56 | Diameter of the anchor circle. |
+| App circle size | 24 – 96 px | 48 | Diameter of each app circle. |
+| Logo / icon size | 12 – 80 px | 32 | Diameter of the icon drawn inside each circle. |
+| Hide delay | 0 – 5000 ms | 400 | Grace period before collapsing after pointer exit. |
+| Hover zoom | 0 – 100 % | 30 % | How much circles scale up when hovered. |
 | Start with Windows | on / off | off | Adds/removes an autorun entry. |
 
 App list lives in `apps.json`; custom icons are copied into the `icons\` subfolder.
@@ -107,7 +118,7 @@ App list lives in `apps.json`; custom icons are copied into the `icons\` subfold
 
 - **WinUI 3** (Windows App SDK 1.8) unpackaged, self-contained, single-window, borderless, tool-window + no-activate.
 - **Window chrome**: `OverlappedPresenter.SetBorderAndTitleBar(false, false)`, `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP`, DWM frame extension, `WM_NCHITTEST` subclassing so only the circles accept hit-testing (else `HTTRANSPARENT`).
-- **Layout math** is isolated in `CircleQuickLauncher.Core` (`ArcLayoutCalculator`, `WindowLayoutCalculator`) — pure, deterministic, and unit-tested (66 tests).
+- **Layout math** is isolated in `CircleQuickLauncher.Core` (`ArcLayoutCalculator`, `WindowLayoutCalculator`) — pure, deterministic, and unit-tested (73 tests).
 - **Config storage** uses atomic writes (`AtomicFile`) + versioned JSON with `Sanitize()` clamping.
 - **Tray integration** via `Shell_NotifyIcon`; single-instance via named mutex + named pipe.
 - **Animations**: WinUI Composition keyframe animations (opacity + scale) with per-item stagger; only run on already-visible elements.

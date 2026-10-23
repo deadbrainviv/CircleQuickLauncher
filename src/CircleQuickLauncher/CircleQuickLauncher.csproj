@@ -7,6 +7,9 @@
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
     <RootNamespace>CircleQuickLauncher</RootNamespace>
     <AssemblyName>CircleQuickLauncher</AssemblyName>
+    <Version>1.2.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <UseWinUI>true</UseWinUI>

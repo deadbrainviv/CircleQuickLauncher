@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $artifacts = Join-Path $root 'artifacts'
-$version = '1.0.0'
+$version = '1.2.0'
 
 if (Test-Path $artifacts) { Remove-Item $artifacts -Recurse -Force }
 New-Item -ItemType Directory -Path $artifacts | Out-Null
