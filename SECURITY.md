@@ -11,7 +11,7 @@ Only the latest release (`main` / newest tag) receives security fixes.
 
 ## Reporting a Vulnerability
 
-Please report security vulnerabilities **privately** via [GitHub Security Advisories](https://github.com/circlequicklauncher/CircleQuickLauncher/security/advisories/new) (preferred) or by emailing the maintainers listed in the repository.
+Please report security vulnerabilities **privately** via [GitHub Security Advisories](https://github.com/deadbrainviv/CircleQuickLauncher/security/advisories/new) (preferred) or by emailing the maintainers listed in the repository.
 
 **Do not open a public issue for security reports.**
 

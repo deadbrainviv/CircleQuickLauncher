@@ -17,7 +17,7 @@ Full instructions for building, testing, and packaging the app from source.
 ## Clone & Restore
 
 ```powershell
-git clone https://github.com/circlequicklauncher/CircleQuickLauncher.git
+git clone https://github.com/deadbrainviv/CircleQuickLauncher.git
 cd CircleQuickLauncher
 dotnet restore CircleQuickLauncher.sln
 ```

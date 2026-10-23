@@ -5,6 +5,21 @@ All notable changes to CircleQuickLauncher will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-23
+
+### Added
+
+- Hover zoom: anchor and app circles scale up smoothly when hovered (default 30%, configurable 0–100%).
+- Configurable edge position: place the anchor anywhere along the chosen edge (default 75%).
+- Display selection: stay on the primary display or pick any connected monitor.
+- Fluid center-preserving scale animation for hover and expand/collapse (XAML RenderTransform + Storyboard).
+- AddAppWindow centered like Settings, transparent and borderless.
+- README updated with v1.2 features and screenshots.
+
+### Fixed
+
+- SearchBox positioned below/above the anchor to prevent spurious pointer-exit on click.
+
 ## [1.0.0] - 2026-10-23
 
 Initial release.
@@ -34,4 +49,5 @@ Initial release.
 - No UI automation tests; hover/expand behavior verified manually.
 - x64 only.
 
-[1.0.0]: https://github.com/circlequicklauncher/CircleQuickLauncher/releases/tag/v1.0.0
+[1.2.0]: https://github.com/deadbrainviv/CircleQuickLauncher/releases/tag/v1.2.0
+[1.0.0]: https://github.com/deadbrainviv/CircleQuickLauncher/releases/tag/v1.0.0

@@ -2,13 +2,15 @@
 
 **A floating, edge-peeking circular quick launcher for Windows 10/11.** Hover the subtle circle docked at your screen edge and it fans out into a radial menu of your favorite apps — one glance, one click, no taskbar clutter.
 
-[![CI](https://github.com/circlequicklauncher/CircleQuickLauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/circlequicklauncher/CircleQuickLauncher/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/circlequicklauncher/CircleQuickLauncher?style=flat-square)](https://github.com/circlequicklauncher/CircleQuickLauncher/releases)
+[![CI](https://github.com/deadbrainviv/CircleQuickLauncher/actions/workflows/ci.yml/badge.svg)](https://github.com/deadbrainviv/CircleQuickLauncher/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/deadbrainviv/CircleQuickLauncher?style=flat-square)](https://github.com/deadbrainviv/CircleQuickLauncher/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
+[!.NET](https://img.shields.io/badge/.NET-8.0-512BD4?style=flat-square&logo=dotnet)](https://dotnet.microsoft.com/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6?style=flat-square&logo=windows)](https://www.microsoft.com/windows)
 
 > **Keywords:** windows quick launcher, radial app launcher, circular dock, edge launcher, hover launcher, productivity, WinUI 3, open source
+
+**Architected by** [deadbrain](https://github.com/deadbrainviv) · **Developed by** [CogniSynapseAI](https://github.com/CogniSynapseAI)
 
 ---
 
@@ -55,7 +57,7 @@
 
 ## Download
 
-Grab the latest release from the [Releases page](https://github.com/circlequicklauncher/CircleQuickLauncher/releases):
+Grab the latest release from the [Releases page](https://github.com/deadbrainviv/CircleQuickLauncher/releases):
 
 | Artifact | Best for |
 | --- | --- |
@@ -129,7 +131,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for full instructions. Quick start:
 
 ```powershell
 # Prerequisites: .NET 8 SDK, Windows 10 SDK 17763+, Visual Studio 2022 (or VS Build Tools) with WinUI workload
-git clone https://github.com/circlequicklauncher/CircleQuickLauncher.git
+git clone https://github.com/deadbrainviv/CircleQuickLauncher.git
 cd CircleQuickLauncher
 dotnet restore CircleQuickLauncher.sln
 dotnet build CircleQuickLauncher.sln -c Release -p:Platform=x64

@@ -5,7 +5,7 @@
 #define MyAppName "CircleQuickLauncher"
 #define MyAppVersion "1.2.0"
 #define MyAppPublisher "CircleQuickLauncher Contributors"
-#define MyAppURL "https://github.com/circlequicklauncher/CircleQuickLauncher"
+#define MyAppURL "https://github.com/deadbrainviv/CircleQuickLauncher"
 #define MyAppExeName "CircleQuickLauncher.exe"
 
 [Setup]
